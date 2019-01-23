@@ -1,0 +1,259 @@
+---
+title: "HW2"
+author: Neal Marquez
+date: "January 23rd, 2019"
+output: pdf_document
+---
+
+```{r libs, message=FALSE, warning=FALSE, echo=FALSE}
+rm(list=ls())
+library(MASS)
+library(mlmRev)
+library(lme4)
+library(arm)
+library(numDeriv)
+library(tidyverse)
+
+data(egsingle)
+schoolDF <- egsingle %>%
+    filter(year == .5)
+```
+
+
+## Homework 2  
+
+This homework uses data from the 1975 U.S. Sustaining Effects Study of elementary education, available as the egsingle dataset in the `mlmRev` R package. This gives data on 1,721 students in 60 schools. We will take `math` (Mathematics achievement score) as the outcome variable, and `schoolid` (the code for the school the student attends) as the grouping variable. For this homework, we will use the data for year $0.5$ only.  
+
+### Question 1  
+
+In this question we will consider the one-way random effects analysis of variance model. We will do many of the same things we did in Homework 1 for the classical analysis of variance model, and compare the results.  
+
+#### A. Write out the model formally.  
+
+$$
+\begin{aligned}
+y_i &= \alpha_{j[i]} + \epsilon_{i}, ~ i= 1, \dots , n \\
+\epsilon_i &\overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
+\alpha_j  &\overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_\alpha) ~ j=1,\dots , J
+\end{aligned}
+$$
+
+#### B. Estimate the parameters of the model.  
+
+We may estimate the parameters of the model by using a variant of maximum likelihood which is formulated in the `lme4` package in `R`.  
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+LM0 <- lm(math ~ 1, data=schoolDF)
+M0 <- lmer(math ~ 1 + (1|schoolid), data=schoolDF, REML=F)
+dd.ML <- lme4:::devfun2(M0,useSc=TRUE,signames=FALSE)
+vv <- as.data.frame(VarCorr(M0)) ## need ML estimates!
+vnames <- c(sprintf(".sig%02d",1),".sigma")
+pars <- setNames(vv[c(1,2),"sdcor"],vnames)
+hh1 <- hessian(dd.ML,pars)
+vv2 <- 2*solve(hh1)
+dimnames(vv2) <- list(vnames,vnames)
+vhack <- list(coefficients=pars,vcov=vv2)
+vcov.default <- function(object,...) object$vcov
+wci <- confint.default(vhack)
+
+parEst <- lm(
+    math ~ schoolid, data=schoolDF, contrasts=list(schoolid = contr.sum))
+
+muLast <- -sum(coefficients(parEst)[-1])
+sterrLast <- sqrt(sum(vcov(parEst)[-1,-1]))
+
+reDF <- tibble(
+    est = ranef(M0)$schoolid[,1],
+    se = se.ranef(M0)$schoolid[,1],
+    `2.5 %` = est - 1.96*se,
+    `97.5 %` = est + 1.96*se) %>%
+    mutate(trueID = row.names(ranef(M0)$schoolid)) %>%
+    arrange(-est) %>%
+    mutate(id=1:n()) %>%
+    mutate(Significant=(0 > `97.5 %` & 0 >`2.5 %`) | (0 < `97.5 %` & 0 <`2.5 %`)) %>%
+    mutate(model="Random Effects")
+
+feDF <- confint(parEst) %>%
+    as_tibble %>%
+    mutate(coef=names(parEst$coefficients)) %>%
+    mutate(est=unname(parEst$coefficients)) %>%
+    filter(coef != "(Intercept)") %>%
+    rbind(tibble(
+        `2.5 %` = muLast - 1.98*sterrLast,
+        `97.5 %` = muLast + 1.98*sterrLast,
+        coef = paste0("schoolid", length(unique(nlschools$class))),
+        est = muLast
+    )) %>%
+    mutate(trueID=levels(schoolDF$schoolid)) %>%
+    left_join(dplyr::select(reDF, trueID, id)) %>%
+    mutate(Significant=(0 > `97.5 %` & 0 >`2.5 %`) | (0 < `97.5 %` & 0 <`2.5 %`)) %>%
+    mutate(model="Fixed Effects")
+```
+
+#### C. Plot the model parameters and their confidence intervals in informative ways.  
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+reDF %>%
+    ggplot(aes(x=id, y=est, ymin=`2.5 %`, ymax=`97.5 %`, color=Significant)) +
+    coord_flip() +
+    theme_classic() +
+    geom_point() +
+    geom_errorbar() +
+    labs(x="School Effects", y="Parameter Estimates") +
+    theme(
+        axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()) +
+    geom_hline(yintercept = 0, linetype=2) +
+    ggtitle("School Effects As Estimated by Random Effects Model(w/ 95% CI)") +
+    guides(color=FALSE)
+```
+
+#### D. Carry out a formal statistical test for the significance of the school effect.  
+
+As stated in Bates et al. 2015 we may use an anova test to measure the inclusion of random effects against a base model that matches the original models fixed effects and only does not include the random effects as long as we fit our random effects model with `REML=FALSE`. The output below shows that the inclusion of random effects provides us with a significantly better fit.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+anova(M0, LM0)
+```
+
+#### E. Estimate the intraclass correlation coefficient.  
+
+We may use the estimates of $\sigma^2_\alpha$ and $\sigma^2_y$ from the random effects model directly to get an estimate of the interclass correlation coefficient. We estimate $\hat\sigma^2_\alpha$ to be `r round(pars[1]^2, 4)` while $\hat\sigma^2_y$ is `r round(pars[2]^2, 4)` giving us an estimate of the interclass correlation coefficient, $\hat\rho$, to be `r round(pars[1]^2 / (pars[1]^2 + pars[2]^2), 4)`.
+
+#### F. What conclusions do you draw from this analysis?  
+
+We may conclude that accounting for the effects of schools on the outcome of an individual students math score has a significant effect and tells us more than we would know if we did not have the school information. Though the inter class correlation coefficient is relatively small an Anova test of the inclusion of random effects provided significantly better fit to the outcome.  
+
+### Question 2  
+
+We will now compare the results from the classical analysis of variance model with the one-way random effects analysis of variance model.
+
+#### A. Plot the estimated school means from the random effects model against those from the classical model and comment on the results.  
+
+The plot below shows a comparison for the school effects as estimated by random effects and fixed effects models. We can immediately see that the estimates from the random effects model tend to be pulled toward the mean especially for schools where the uncertainty is large, i.e. there are not many student observations. Another consequence of this is that the individual school effects uncertainty are smaller as well.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+bind_rows(reDF, feDF) %>%
+    group_by(model) %>%
+    ggplot(aes(x=id, y=est, ymin=`2.5 %`, ymax=`97.5 %`, color=Significant)) +
+    coord_flip() +
+    theme_classic() +
+    geom_point() +
+    geom_errorbar() +
+    labs(x="School Effects", y="Parameter Estimates") +
+    theme(
+        axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()) +
+    geom_hline(yintercept = 0, linetype=2) +
+    ggtitle("School Effects (w/ 95% CI)") +
+    facet_wrap(~model) +
+    guides(color=FALSE)
+```
+
+#### B. For which school is the difference between the two estimates the largest?  
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+deltaMath <- bind_rows(reDF, feDF) %>%
+    select(trueID, model, est) %>%
+    spread("model", "est") %>%
+    mutate(diff=abs(`Fixed Effects` - `Random Effects`)) %>%
+    arrange(-diff) %>%
+    head(n=1) %>%
+    select(diff) %>%
+    unlist
+
+biggestChange <- bind_rows(reDF, feDF) %>%
+    select(trueID, model, est) %>%
+    spread("model", "est") %>%
+    mutate(diff=abs(`Fixed Effects` - `Random Effects`)) %>%
+    arrange(-diff) %>%
+    head(n=1) %>%
+    select(trueID) %>%
+    unlist
+
+nDelta <- schoolDF %>%
+    filter(schoolid == biggestChange) %>%
+    nrow()
+
+sigma_a2 <- pars[1]^2
+sigma_y2 <- pars[2]^2
+
+cDF <- schoolDF %>%
+    group_by(schoolid) %>%
+    summarize(n=n(), ybar=mean(math)) %>%
+    arrange(schoolid) %>%
+    mutate(cj = 1 / (sigma_a2 + (sigma_y2 / n)))
+
+school_mean <- cDF %>%
+    filter(schoolid == biggestChange) %>%
+    select(ybar) %>%
+    unlist
+
+mu_hat <- sum(cDF$cj * cDF$ybar) / sum(cDF$cj)
+
+cDF2 <- cDF %>%
+    mutate(w1=n/sigma_y2, w2=1/sigma_a2)
+
+w1 <- cDF2 %>%
+    filter(schoolid == biggestChange) %>%
+    select(w1) %>%
+    unlist()
+
+w2 <- cDF2 %>%
+    filter(schoolid == biggestChange) %>%
+    select(w2) %>%
+    unlist()
+
+alpha_hat <- (w1*school_mean+w2*mu_hat)/(w1+w2)
+alpha_hat_lmer <- fixef(M0)+ranef(M0)$schoolid[biggestChange,]
+```
+
+The biggest change occurred for school id `r biggestChange` with a change in score of `r round(deltaMath, 4)`. This is to be expected as the number of student observations that occurred for this school was `r nDelta` which means that its observational weight was much smaller compared to the weight of the overall mean, leading to an estimate in the random effects model that is closer to zero.
+
+#### C. For this one school, calculate (i) the overall mean; (ii) the school mean; (iii) the weights for the overall mean and the school mean in forming the multilevel estimate of the school mean. (iv) Use these results to write the multilevel estimate of the school mean explicitly as a weighted average, giving the numerical values, and compare your result with the result from lmer software.  
+
+In the following notation I refer to the school that had the greatest change in the school level estimate as $j^\star$. We may calculate the school mean of $j^\star$ by simply adding all math score observations that take place within that school and dividing by the number of observations at that school.
+
+$$
+\bar y_{j^\star} = \frac{\sum_{i ~\text{where}~j[i] = j^\star } y_i}{\sum_{i ~\text{where}~j[i] = j^\star} 1}
+$$
+
+Our school mean is then found to be `r round(school_mean, 4)`.
+
+We can use each school mean to calculate an estimate of the overall mean $\hat\mu_\alpha$ in the following way.
+
+$$
+\hat\mu_\alpha = \frac{\sum_{j=1}^J c_j \bar y_j}{\sum_{j=1}^J c_j}
+$$
+$$
+c_j = \frac{1}{\sigma^2_\alpha + \frac{\sigma^2_y}{n_j}}
+$$
+
+The estimate for the overall mean is then `r round(mu_hat, 4)`.
+
+To estimate the random effect of $j^\star$ we must calculate weights $\text{w}_{1j^\star}$ and $\text{w}_{2j^\star}$ which are found to be `r round(w1, 4)` and `r round(w2, 4)` respectively calculated from the equations.
+
+$$
+\text{w}_{1j^\star} = \frac{n_{j^\star}}{\sigma^2_y} \\
+\text{w}_{2j^\star} = \frac{1}{\sigma^2_\alpha}
+$$
+
+Finally, we may get the school level random effect $\hat\alpha_{j^\star}$ from the equation  
+
+$$
+\hat\alpha_{j^\star} = \frac{\text{w}_{1j^\star}\bar y_{j^\star} + \text{w}_{2j^\star} \hat\mu_\alpha}{\text{w}_{1j^\star} + \text{w}_{2j^\star}}
+$$
+
+The final estimate for the school level random effect from this hand calculation is found to be `r round(alpha_hat, 4)` which is exactly the same as the sum of the intercept and $j^\star$ random effect from the `lme4` output.
+
+#### D. What are the main factors contributing to the difference between the classical analysis of variance estimates and the random effects analysis of variance estimates?  
+
+The main factors that contributes to the difference is the sample size of students from the $j^\star$ school, leading to a smaller weight calculation for the group mean relative to the overall mean, and how random effects take into account both the group mean and overall mean in the school effect where is fixed effects are only concerned with the group mean for the mean of the fixed effect estimate.
+
+\newpage
+
+# References
+
+Bates, et. al. 2015. "Fitting Linear Mixed-Effects Models Using lme4". Journal of Statistical Software. October  Vol 67, Issue 1.

@@ -1,0 +1,173 @@
+---
+title: "HW1"
+author: Neal Marquez
+date: "January 16th, 2019"
+output: pdf_document
+---
+
+```{r libs, message=FALSE, warning=FALSE, echo=FALSE}
+rm(list=ls())
+library(tidyverse)
+library(mlmRev)
+library(knitr)
+```
+
+## Homework 1  
+
+This homework uses data from the 1975 U.S. Sustaining Effects Study of elementary education, available as the egsingle dataset in the `mlmRev` R package. This gives data on 1,721 students in 60 schools. We will take `math` (Mathematics achievement score) as the outcome variable, and `schoolid` (the code for the school the student attends) as the grouping variable. For this homework, we will use the data for year $0.5$ only.  
+
+### Question 1  
+
+We will first consider the classical analysis of variance model.  
+
+#### A) Write out the model formally using sum contrasts.  
+
+$$
+y_i = \alpha_{j[i]} + \epsilon_i,~i=1, \dots,n \\
+\alpha_{j[i]} = \beta_0 + \beta_{j[i]} \\
+\sum_{k=1}^M \beta_k = 0 \\
+\epsilon \sim \mathcal{N}(0,\sigma^2_y)
+$$
+
+
+#### B) Estimate the parameters of the model.  
+
+We may estimate the parameters of this model by Constructing a design matrix $X$ which is $N \times (M)$ in dimensions where $N$ is the number of observation and $M$ is the number of groups. The matrix is populated with the following algorithm.
+
+$$
+\begin{aligned}
+&\text{if } j[i] \neq M, \\
+&~~~~X_{i,1} = 1 \\
+&~~~~X_{i,j[i]} = 1 \\
+&~~~~X_{i,k \notin \{ 1,j[i]\}} = 0 \\
+&\text{else}, \\
+&~~~~X_{i,1} = 1 \\
+&~~~~X_{i,k \neq 1} = -1 \\
+\end{aligned}
+$$
+This formulation will give us an intercept $\beta_0$ that represents the mean of all the groups, $M-1~\beta$ coefficients that represent the difference between a specific group and the mean of all groups. The last groups coefficient, $\beta_M$, may be calculated from $-\sum_{k=1}^{M-1} \beta_k$. It's standard error may be calculated as $\sqrt{\sum_k^{M-1} \text{Var}(\beta_k) + \sum_k^{M-1} \sum_{s \neq k}^{M-1}\text{CoVar}(\beta_k, \beta_s)}$.
+
+#### C) Plot the model parameters and their confidence intervals in informative ways.
+
+Below we plot the school effects for the 60 schools along with their uncertainty sorted from smallest to largest. We see that about a third of the schools have a significant school effect than the mean of the schools.  
+
+```{r, echo=FALSE}
+data(egsingle)
+schoolDF <- egsingle %>%
+    filter(year == .5) %>%
+    group_by(schoolid) %>%
+    mutate(ahat=mean(math)) %>%
+    ungroup
+
+parEst <- lm(
+    math ~ schoolid, data=schoolDF, contrasts=list(schoolid = contr.sum))
+
+# calc the stats for the last coefficient
+muLast <- -sum(coefficients(parEst)[-1])
+sterrLast <- sqrt(sum(vcov(parEst)[-1,-1]))
+
+
+confint(parEst) %>%
+    as_tibble %>%
+    mutate(coef=names(parEst$coefficients)) %>%
+    mutate(est=unname(parEst$coefficients)) %>%
+    filter(coef != "(Intercept)") %>%
+    rbind(tibble(
+        `2.5 %` = muLast - 1.98*sterrLast,
+        `97.5 %` = muLast + 1.98*sterrLast,
+        coef = paste0("schoolid", length(unique(schoolDF$schoolid))),
+        est = muLast
+    )) %>%
+    arrange(-est) %>%
+    mutate(id=1:n()) %>%
+    mutate(Significant=(0 > `97.5 %` & 0 >`2.5 %`) | (0 < `97.5 %` & 0 <`2.5 %`)) %>%
+    ggplot(aes(x=id, y=est, ymin=`2.5 %`, ymax=`97.5 %`, color=Significant)) +
+    coord_flip() +
+    theme_classic() +
+    geom_point() +
+    geom_errorbar() +
+    labs(x="School Effects", y="Parameter Estimates") +
+    theme(
+        axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()) +
+    geom_hline(yintercept = 0, linetype=2) +
+    ggtitle("School Effects As a Difference From the Mean(w/ 95% CI)")
+
+```
+
+#### D. Carry out a formal statistical test for the significance of the school effect.  
+Below we show the results of an F-test testing the effects of schools and we find that school has a significant effect on the outcome of math score.
+
+
+```{r, echo=FALSE}
+anova(parEst)
+```
+
+#### E. What conclusions do you draw from this analysis?  
+
+Schools significantly differ from one another in their average math scores. That is to say that we can better estimate a students predicted score if we know the school from which they come from.
+
+### Question 2  
+
+Using the results of your analysis in question 1, answer the following.  
+
+#### A. Calculate the within-school variance, the between-school variance and the intraclass correlation coefficient.
+
+Recall that these values may be calculated as seen below.
+
+$$
+\hat\sigma^2_y = \frac{1}{n-J}\sum_{i=1}^n (y_i - \hat\alpha_{j[i]})^2 \\
+\hat\sigma^2_\alpha = \frac{1}{J-1}\sum_{i=1}^J (\hat\alpha_j - \bar\alpha) \\
+\hat\rho = \frac{\hat\sigma^2_\alpha}{\hat\sigma^2_\alpha + \hat\sigma^2_y}
+$$
+
+This leaves us with the following estimates
+
+```{r, echo=F}
+J <- length(unique(schoolDF$schoolid))
+sigma2y <- 1/(nrow(schoolDF) - J)*sum((schoolDF$math - schoolDF$ahat)^2)
+sigma2alpha <- schoolDF %>%
+    group_by(schoolid) %>%
+    summarize(alpha_hat=mean(math)) %>%
+    ungroup %>%
+    mutate(avg=mean(alpha_hat), ssi=(alpha_hat - avg)^2) %>%
+    select(ssi) %>%
+    unlist %>%
+    sum %>%
+    `*`(1/(J-1))
+icc <- sigma2alpha / (sigma2alpha + sigma2y)
+
+
+kable(tibble(
+    Statistic = c(
+        "Within-School Variance",
+        "Between-School Variance",
+        "Intraclass Correlation Coefficient"),
+    Estimate = c(sigma2y, sigma2alpha, icc)
+))
+
+ignore.ysterr <- (var(schoolDF$math) / nrow(schoolDF))^.5
+account.ysterr <- summary(parEst)$coefficients[1,"Std. Error"]
+```
+
+#### B. If all the schools had the same number of students (i.e. if there were 60 schools with 29 students each), what would the design effect for a two-stage sample be?
+
+If all the groups are the same size we may calculate the design effect as  
+
+$$
+1 + (n_1-1)\rho
+$$
+
+Which for our estimate, $\hat\rho$, leaves us with a design effect of `r round(1+(29-1)*icc, 4)`.
+
+#### C. Ignoring the within-school correlation, what is the estimate of the overall average score? What is its standard error? By how much would the standard error be underestimated by ignoring within-school correlation? Calculate an adjusted standard error for the overall mean score taking account of within-school correlation. [When answering this sub-question, ignore differences between the sizes of schools, i.e. pretend that there are 60 schools with 29 students each.]
+
+We can calculate an estimate of the mean and SE ignoring within school correlation using the following equations.
+
+$$
+\bar y = n^{-1}\sum_{i=1}^n y_i \\
+\bar\sigma^\star_y = \text{Var}[y]n^{-1}
+$$
+
+This gives us an overall mean of `r round(mean(schoolDF$math), 4)` which, if all schools have the same number of students, should match the intercept of a sum contrasts model specification. On the other hand the estimate of the standard error for this mean is `r round(ignore.ysterr, 4)` which when compared to the estimate which accounts for in school correlation, `r round(account.ysterr, 4)`, leads us to an overestimation of the standard error of about `r round(account.ysterr/ignore.ysterr, 4)`.
