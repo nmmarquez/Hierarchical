@@ -65,7 +65,7 @@ y_i = \beta_0 + \alpha_{j[i]} + \epsilon_i \\
 \end{aligned}
 $$
 
-Note that prior to using the covariates in each model we adjust `lowinc` so that it is zero centered and we re-code the "dummy" variable `retained` such that a true is represented by 1 and a false is represented by -1. The coefficient for `retained` is then seen as twice the amount of marginal change we observe when we move from `retained` being false to `retained` being true. After we fit the models we may compare the results using BIC. Table 1 shows the BIC calaculate for the 4 linear and the 4 Hierarchical models listed above. We see that in each case the hierarchical model provides a better fit to the data by at least 30 which indicates a "very strong" preference for the hierarchical model as suggested in Raftery 1995. In addition we also find that among the hierarchical models, model 8, which includes both covariates is the model most preferred although the evidence is not as strong.
+Note that prior to using the covariates in each model we adjust `lowinc` so that it is zero centered and we re-code the "dummy" variable `retained` such that a true is represented by 1 and a false is represented by -1, as suggested in Gelman and Hill 2007. The coefficient for `retained` is then seen as half the amount of marginal change we observe when we move from `retained` being false to `retained` being true. After we fit the models we may compare the results using BIC. Table 1 shows the BIC calaculate for the 4 linear and the 4 Hierarchical models listed above. We see that in each case the hierarchical model provides a better fit to the data by at least 30 which indicates a "very strong" preference for the hierarchical model as suggested in Raftery 1995. In addition we also find that among the hierarchical models, model 8, which includes both covariates is the model most preferred although the evidence is not as strong.
 
 
 ```{r Q1a, message=FALSE, warning=FALSE, echo=FALSE}
@@ -125,7 +125,7 @@ coefDF %>%
 
 Consider the school for which the difference between the estimated school mean under the random effects model was most different from that under the classical model in Question 2 of Homework 2. Calculate and plot the estimated school effect and its confidence interval under each of the 8 models considered here. What do you conclude about this school from this analysis?
 
-Figure 2 shows the estimate for school 3221 across the four hierarchical models. We do not include the four linear models because they do not contain a specific school effects as shown in the equations above. For each of the models the confidence interval overlaps with a zero value. The addition of different covariates into the model pulls the mean estimate of this school towards zero. This is not surprising as we have only three observations from this school and as we add covariates to the model more of the variance between schools can be explained by the covariates. This is especially noticeable when we include just the school level covariate `lowinc`.
+Figure 2 shows the estimate for school 3221 across the four hierarchical models. We do not include the four linear models because they do not contain a specific school effects as shown in the equations above. For each of the models the confidence interval overlaps with a zero value. The addition of different covariates into the model pulls the mean estimate of this school towards zero. This is not surprising as we have only three observations from this school and as we add covariates to the model more of the variance between schools can be explained by the covariates. This is especially noticeable when we include just the school level covariate `lowinc`, and can be evidenced by examining Figure 3 where we see a reduction in the estimate of $\sigma_\alpha$ with the inclusion of the school level predictor. 
 
 ```{r Q2a, message=FALSE, warning=FALSE, echo=FALSE, fig.width=6, fig.height=4,  fig.cap="\\label{fig:fig2}School ID 3221 Estaimate Across HM Models"}
 reDF <- bind_rows(lapply(names(modelMM), function(m){
@@ -151,7 +151,27 @@ reDF %>%
     labs(x="Model", y="Coefficient Estimate")
 ```
 
+```{r Q2b, message=FALSE, warning=FALSE, echo=FALSE, fig.width=6, fig.height=4,  fig.cap="\\label{fig:fig3} Estimate of Sigma Alpha with 95% Confidence Intervals"}
+bind_rows(lapply(names(modelMM), function(m){
+    confint(modelMM[[m]]) %>%
+        as.data.frame %>%
+        mutate(Coefficient=row.names(.), model=m) %>%
+        mutate(model=paste0(model, " ")) %>%
+        filter(grepl("sig01", Coefficient)) %>%
+        mutate(est=as.numeric(summary(modelMM[[m]])$varcor$schoolid)^.5) %>%
+        as_tibble})) %>%
+    ggplot(aes(x=model, y=est, ymin=`2.5 %`, ymax=`97.5 %`)) +
+    geom_point() +
+    geom_errorbar(width = .3) +
+    theme_classic() +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 55, vjust = .5)) +
+    geom_hline(yintercept = 0, linetype=2) +
+    labs(x="Model", y=latex2exp::TeX("$\\sigma_\\alpha$ Estimate"))
+```
+
 \newpage
 
 ## References  
-Raftery, Adrian E. 1995. "Bayesian Model Selection in Social Research". Sociological Methodology. Vol 25, 111-163.
+Raftery, Adrian E. 1995. "Bayesian Model Selection in Social Research". Sociological Methodology. Vol 25, 111-163.  
+Gelman, Andrew and Jennifer Hill 2007. Data Analysis Using Regression and Multilevel/Hierarchical Models. Cambridge University Press. 
