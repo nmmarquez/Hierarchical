@@ -1,0 +1,157 @@
+---
+title: "HW3"
+author: Neal Marquez
+date: "January 30th, 2019"
+output:
+  pdf_document:
+    fig_caption: yes
+---
+
+```{r libs, message=FALSE, warning=FALSE, echo=FALSE}
+rm(list=ls())
+library(MASS)
+library(mlmRev)
+library(lme4)
+library(arm)
+library(numDeriv)
+library(knitr)
+library(tidyverse)
+
+data(egsingle)
+schoolDF <- egsingle %>%
+    filter(year == .5) %>%
+    mutate(lowincDM = lowinc - mean(lowinc)) %>%
+    mutate(retained = as.logical(as.numeric(as.character(retained)))) %>%
+    mutate(retained = ifelse(retained, 1, -1)) %>%
+    as_tibble
+
+```
+
+## Homework 2  
+
+This homework uses data from the 1975 U.S. Sustaining Effects Study of elementary education, available as the egsingle dataset in the `mlmRev` R package. This gives data on 1,721 students in 60 schools. We will take `math` (Mathematics achievement score) as the outcome variable, and `schoolid` (the code for the school the student attends) as the grouping variable. For this homework, we will use the data for year $0.5$ only.  
+
+### Question 1  
+
+We now consider the micro-level predictor variable `retained`, and the macro-level predictor variable `lowinc`. Consider all the possible multilevel models resulting from including or not each of the `school`, `retained` and `lowinc`. This yields 8 different models. Estimate each of them and compare them. What conclusions do you draw from this analysis?  
+
+With the addition of the two covariates `retained` and `lowinc` we now have four versions of covariate inclusion to consider as well as whether or not to include a set of random effects accounting for the school level effect. For clarity below we show the functional forms for each model.
+
+$$
+\begin{aligned}
+\text{Model 1: Intercept} \\
+y_i = \beta_0 + \epsilon_i \\
+\epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
+\text{Model 2: Low Income} \\
+y_i = \beta_0 + \beta_1 \times \text{LowIncome}_{j[i]} + \epsilon_i \\
+\epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
+\text{Model 3: Intercept} \\
+y_i = \beta_0 + \beta_1 \times \text{Retained}_{j} + \epsilon_i \\
+\epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
+\text{Model 4: Intercept} \\
+y_i = \beta_0 + \beta_1 \times \text{LowIncome}_{j[i]} + \beta_1 \times \text{Retained}_{j} + \epsilon_i \\
+\epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
+\end{aligned}
+$$
+
+Models 5-8 match up with models 1:4 respectively however include the additional term for the school level effect. Below we show the structure for model 5.
+
+$$
+\begin{aligned}
+\text{Model 5: HM Intercept} \\
+y_i = \beta_0 + \alpha_{j[i]} + \epsilon_i \\
+\epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
+\alpha_j  \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_\alpha) ~ j=1,\dots , J
+\end{aligned}
+$$
+
+Note that prior to using the covariates in each model we adjust `lowinc` so that it is zero centered and we re-code the "dummy" variable `retained` such that a true is represented by 1 and a false is represented by -1. The coefficient for `retained` is then seen as twice the amount of marginal change we observe when we move from `retained` being false to `retained` being true. After we fit the models we may compare the results using BIC. Table 1 shows the BIC calaculate for the 4 linear and the 4 Hierarchical models listed above. We see that in each case the hierarchical model provides a better fit to the data by at least 30 which indicates a "very strong" preference for the hierarchical model as suggested in Raftery 1995. In addition we also find that among the hierarchical models, model 8, which includes both covariates is the model most preferred although the evidence is not as strong.
+
+
+```{r Q1a, message=FALSE, warning=FALSE, echo=FALSE}
+modelFF <- list(
+    Intercept = math ~ 1,
+    `Low Income` = math ~ lowincDM,
+    `Retained` = math ~ retained,
+    `Retained + Low Income` = math ~ lowincDM + retained
+)
+
+modelMFF <- lapply(modelFF, function(x) update(x, ~ . + (1|schoolid)))
+
+modelLM <- lapply(modelFF, lm, data=schoolDF)
+modelMM <- lapply(modelMFF, lmer, data=schoolDF)
+
+tibble(
+    `Model Covariates` = names(modelFF),
+    `Linear Model` = sapply(modelLM, BIC),
+    `Heirarchical Model` = sapply(modelMM, BIC)) %>%
+    kable(caption="BIC for 8 Evaluated models")
+```
+
+Figure 1 shows the effect of how different models estimate coefficients differently. Each panel represents a different covariate being estimate and the y axis show which model was used to estimate that particular instance. notice that for certain panel-model combination we see no estimate of a coefficient because it was not included in that model. What we can see is that the effect estimate does not greatly change among the different model specifications, however, we do see increased confidence intervals for coefficient estimate in the hierarchical models. This is because the models account for the correlated nature of the observations, thus, decreasing the amount of information that a single data point gives us if it is in the same school.
+
+```{r Q1b, message=FALSE, warning=FALSE, echo=FALSE, fig.width=6, fig.height=4,  fig.cap="\\label{fig:fig1}Coefficient Estimates Across Models"}
+coefDF <- bind_rows(
+    bind_rows(lapply(names(modelLM), function(m){
+        confint(modelLM[[m]]) %>%
+            as.data.frame %>%
+            mutate(Coefficient=row.names(.), model=m) %>%
+            mutate(est=coefficients(modelLM[[m]])) %>%
+            as_tibble})) %>%
+        mutate(Method="Linear Model"),
+    bind_rows(lapply(names(modelMM), function(m){
+        confint(modelMM[[m]]) %>%
+            as.data.frame %>%
+            mutate(Coefficient=row.names(.), model=m) %>%
+            mutate(model=paste0(model, " ")) %>%
+            filter(!grepl("sig", Coefficient)) %>%
+            mutate(est=fixef(modelMM[[m]])) %>%
+            as_tibble})) %>%
+        mutate(Method="Hierarchical Model"))
+
+coefDF %>%
+    filter(Coefficient != "(Intercept)") %>%
+    ggplot(aes(x=model, y=est, color=Method, ymin=`2.5 %`, ymax=`97.5 %`)) +
+    geom_point() +
+    geom_errorbar(width = .3) +
+    theme_classic() +
+    facet_wrap(~Coefficient, scales = "free_x") +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 55, vjust = .5)) +
+    labs(x="Model", y="Coefficient Estimate")
+```
+
+### Question 2  
+
+Consider the school for which the difference between the estimated school mean under the random effects model was most different from that under the classical model in Question 2 of Homework 2. Calculate and plot the estimated school effect and its confidence interval under each of the 8 models considered here. What do you conclude about this school from this analysis?
+
+Figure 2 shows the estimate for school 3221 across the four hierarchical models. We do not include the four linear models because they do not contain a specific school effects as shown in the equations above. For each of the models the confidence interval overlaps with a zero value. The addition of different covariates into the model pulls the mean estimate of this school towards zero. This is not surprising as we have only three observations from this school and as we add covariates to the model more of the variance between schools can be explained by the covariates. This is especially noticeable when we include just the school level covariate `lowinc`.
+
+```{r Q2a, message=FALSE, warning=FALSE, echo=FALSE, fig.width=6, fig.height=4,  fig.cap="\\label{fig:fig2}School ID 3221 Estaimate Across HM Models"}
+reDF <- bind_rows(lapply(names(modelMM), function(m){
+    M0 <- modelMM[[m]]
+    tibble(
+        est = ranef(M0)$schoolid[,1],
+        se = se.ranef(M0)$schoolid[,1],
+        `2.5 %` = est - 1.96*se,
+        `97.5 %` = est + 1.96*se) %>%
+        mutate(schoolid = row.names(ranef(M0)$schoolid)) %>%
+        arrange(-est) %>%
+        mutate(model=m)})) %>%
+    filter(schoolid == "3221")
+
+reDF %>%
+    ggplot(aes(x=model, y=est, ymin=`2.5 %`, ymax=`97.5 %`)) +
+    geom_point() +
+    geom_errorbar(width = .3) +
+    theme_classic() +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 55, vjust = .5)) +
+    geom_hline(yintercept = 0, linetype=2) +
+    labs(x="Model", y="Coefficient Estimate")
+```
+
+\newpage
+
+## References  
+Raftery, Adrian E. 1995. "Bayesian Model Selection in Social Research". Sociological Methodology. Vol 25, 111-163.

@@ -111,7 +111,7 @@ reDF %>%
 
 #### D. Carry out a formal statistical test for the significance of the school effect.  
 
-As stated in Bates et al. 2015 we may use an anova test to measure the inclusion of random effects against a base model that matches the original models fixed effects and only does not include the random effects as long as we fit our random effects model with `REML=FALSE`. The output below shows that the inclusion of random effects provides us with a significantly better fit.
+As stated in Bates et al. 2015 we may use an anova test to measure the inclusion of random effects against a base model that matches the original models fixed effects and only does not include the random effects as long as we fit our random effects model with `REML=FALSE`. The Null in this case tells us that the school level effects are null or more formally $\sigma_\alpha^2 = 0$ whereas the alternative hypothesis states that there is a significant difference between the groups or $\sigma_\alpha^2 \neq 0$. To We can test this in `R` by building a null model that is a linear model with only an intercept, $\hat\mu_\alpha$, and residual variance, $\hat\sigma^2_y$, and comparing it to the the random effects model described above. This is done in the anova with the $\chi^2$-test which will have a single degree of freedom because of the additional variance parameter estimated $\sigma^2_\alpha$. The output below shows that the inclusion of random effects provides us with a significantly better fit or that we should accept the alternative hypothesis at the $\alpha=.05$ level, with a p-value of < 2.2e-16.  
 
 ```{r message=FALSE, warning=FALSE, echo=FALSE}
 anova(M0, LM0)
@@ -123,7 +123,7 @@ We may use the estimates of $\sigma^2_\alpha$ and $\sigma^2_y$ from the random e
 
 #### F. What conclusions do you draw from this analysis?  
 
-We may conclude that accounting for the effects of schools on the outcome of an individual students math score has a significant effect and tells us more than we would know if we did not have the school information. Though the inter class correlation coefficient is relatively small an Anova test of the inclusion of random effects provided significantly better fit to the outcome.  
+We may conclude that accounting for the effects of schools on the outcome of an individual students math score has a significant effect and tells us more than we would know if we did not have the school information. Though the inter class correlation coefficient is relatively small an anova testing the inclusion of random effects showed that the inclusion of school level random effects provided a significantly better fit to the outcome.  
 
 ### Question 2  
 
@@ -210,7 +210,7 @@ alpha_hat <- (w1*school_mean+w2*mu_hat)/(w1+w2)
 alpha_hat_lmer <- fixef(M0)+ranef(M0)$schoolid[biggestChange,]
 ```
 
-The biggest change occurred for school id `r biggestChange` with a change in score of `r round(deltaMath, 4)`. This is to be expected as the number of student observations that occurred for this school was `r nDelta` which means that its observational weight was much smaller compared to the weight of the overall mean, leading to an estimate in the random effects model that is closer to zero.
+The biggest change occurred for `schoolid` `r biggestChange` with a change in score of `r round(deltaMath, 4)`. This is to be expected as the number of student observations that occurred for this school was `r nDelta` which means that its observational weight was much smaller compared to the weight of the overall mean, leading to an estimate in the random effects model that is closer to zero.
 
 #### C. For this one school, calculate (i) the overall mean; (ii) the school mean; (iii) the weights for the overall mean and the school mean in forming the multilevel estimate of the school mean. (iv) Use these results to write the multilevel estimate of the school mean explicitly as a weighted average, giving the numerical values, and compare your result with the result from lmer software.  
 
