@@ -1,0 +1,161 @@
+---
+title: "HW4"
+author: Neal Marquez
+date: "February 6th, 2019"
+output:
+  pdf_document:
+    fig_caption: yes
+---
+
+```{r libs, message=FALSE, warning=FALSE, echo=FALSE}
+rm(list=ls())
+library(MASS)
+library(mlmRev)
+library(lme4)
+library(arm)
+library(numDeriv)
+library(knitr)
+library(tidyverse)
+
+data(egsingle)
+schoolDF <- egsingle %>%
+    filter(year == .5) %>%
+    mutate(lowincDM = lowinc - mean(lowinc)) %>%
+    mutate(retained = as.logical(as.numeric(as.character(retained)))) %>%
+    as_tibble
+
+studentCountDF <- schoolDF %>%
+    group_by(schoolid) %>%
+    summarize(
+        students=n(),
+        retained=sum(retained)
+    ) %>%
+    mutate(`Percent Retained`=retained/students)
+```
+
+## Homework 4
+
+This homework again uses data from the 1975 U.S. Sustaining Effects Study of elementary education, available as the `egsingle` dataset in the `mlmRev` `R` package. This gives data on 1,721 students in 60 schools. We will take `math` (Mathematics achievement score) as the outcome variable, and `schoolid` (the code for the school the student attends) as the grouping variable. We will use only the data for year `0.5` (for which there are data on 1672 students). We will consider the micro-level predictor variable `retained`.  
+
+### Question 1  
+
+Fit the multilevel model with varying intercepts and slopes for retained. Compare it to the multilevel model with constant slope and varying intercepts.  
+
+#### Model Functional Forms
+$$
+\begin{aligned}
+\text{Model 1: HM Intercept \& Slope} \\
+y_i = \beta_0 + \beta_1 \times \text{Retained}_{j} + 
+    \alpha_{1j[i]} + \alpha_{2j[i]} \times \text{Retained}_{j} + \epsilon_i \\
+\epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
+\begin{bmatrix}
+    \alpha_{1j} \\
+    \alpha_{2j} \\
+\end{bmatrix} \sim 
+\text{MVN}\Bigg( 
+\begin{bmatrix}
+    0 \\
+    0 \\
+\end{bmatrix},
+\begin{bmatrix}
+    \sigma^2_{\alpha_{1}} & \rho\sigma_{\alpha_{1}} \sigma_{\alpha_{2}} \\
+    \rho\sigma_{\alpha_{1}} \sigma_{\alpha_{2}} & \sigma^2_{\alpha_{2}} \\
+\end{bmatrix}
+\Bigg)
+\end{aligned}
+$$
+
+$$
+\begin{aligned}
+\text{Model 2: HM Intercept} \\
+y_i = \beta_0 + \beta_1 \times \text{Retained}_{j} + 
+    \alpha_{1j[i]} + \epsilon_i \\
+\epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
+\alpha_j  \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_\alpha)
+\end{aligned}
+$$
+
+Above are the model functional forms for the intercept only random effect with a fixed slope, Model 2, as well as a model with random intercepts and slopes, Model 1. In our formulation Model 1 has 2 extra apramters to fit compared to Model 2, and additional $\alpha$ parameter as well as a $\rho$ parameter. We may use a chi squared test here to compare the two models as described in Gelman and Hill 20017 since Model 2 is nested in Model 1. In order to be thourough we may also compare the BIC of both models as described in Rafery 1995. Table 1 shows the Chi Squate test with 2 defrees of freedom as well as the BIC of both models. The BIC for Model 2 is lower by more than 10 indicating strong evidenece for the more parsimonious model. In addition, the Chi square test indicates that we cant not reject the null Hypothesis that Model 1's additional parameters offer a better model to the data than Model 2. 
+
+```{r Q1a, message=FALSE, warning=FALSE, echo=FALSE}
+modelFF <- list(
+    `Intercept` = math ~ retained + (1|schoolid),
+    `Intercept & Slope` = math ~ retained + (1+retained|schoolid)
+)
+
+modelFits <- lapply(modelFF, lmer, data=schoolDF, REML=FALSE)
+
+anova(modelFits[[1]], modelFits[[2]]) %>%
+    as_tibble() %>%
+    mutate(Model=names(modelFits)) %>%
+    knitr::kable(caption="Model Comparison By Chi Square Test & BIC", digits=2)
+```
+
+### Question 2  
+
+For each school compute the OLS regression line based on the data for that school only, and the difference between the OLS regression coefficient estimate for retained and the multilevel estimate of the slope for retained. Which school has the largest positive difference between the two estimates of the slope? Which school has the largest negative difference? Which school has the smallest absolute difference?  
+
+```{r Q2a, message=FALSE, warning=FALSE, echo=FALSE}
+slopeEstDF <- left_join(
+    bind_rows(lapply(levels(schoolDF$schoolid), function(id){
+        subModel <- lm(math ~ retained, data=filter(schoolDF, schoolid == id))
+        tibble(
+            schoolid=id, 
+            LMest=coefficients(subModel)[2],
+            LMlow=confint(subModel)[2,1],
+            LMhi=confint(subModel)[2,2])})),
+
+    coef(modelFits$`Intercept & Slope`)$schoolid %>%
+        mutate(schoolid=row.names(.)) %>%
+        as_tibble() %>%
+        select(-`(Intercept)`, HMest=retainedTRUE) %>%
+        mutate(se=sqrt(
+            (se.ranef(modelFits$`Intercept & Slope`)$schoolid[,2])^2 +
+            (se.fixef(modelFits$`Intercept & Slope`)[2])^2)) %>%
+        mutate(HMlow=HMest - 1.96*se, HMhi=HMest + 1.96*se) %>%
+        select(-se),
+    
+    by="schoolid") %>%
+    mutate(absDiff=abs(LMest - HMest), diff=LMest-HMest)
+
+
+naEstimatesN <- sum(is.na(slopeEstDF$LMest))
+smallAbsDiff <- 
+    slopeEstDF$schoolid[which(min(slopeEstDF$absDiff, na.rm=T) == slopeEstDF$absDiff)]
+largePosDiff <- 
+    slopeEstDF$schoolid[which(max(slopeEstDF$diff, na.rm=T) == slopeEstDF$diff)]
+largeNegDiff <- 
+    slopeEstDF$schoolid[which(min(slopeEstDF$diff, na.rm=T) == slopeEstDF$diff)]
+
+typeDiff <- c(
+    "Large Negative Difference",
+    "Large Positive Difference",
+    "Small Absolute Difference")
+
+names(typeDiff) <-  c(largeNegDiff, largePosDiff, smallAbsDiff)
+
+slopeEstDF %>%
+    select(-absDiff, -diff) %>%
+    gather("Metric", "Value", -schoolid) %>%
+    mutate(Model=str_sub(Metric, 1, 2)) %>%
+    mutate(Metric=str_sub(Metric, 3, -1)) %>%
+    spread("Metric", "Value") %>%
+    filter(schoolid %in% names(typeDiff)) %>%
+    mutate(type=typeDiff[schoolid]) %>%
+    ggplot(aes(x=type, y=est, ymin=low, ymax=hi, color=Model)) +
+    geom_point(alpha=.5) +
+    geom_errorbar(width = .3, alpha=.5) +
+    theme_classic() +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 55, vjust = .5)) +
+    geom_hline(yintercept = fixef(modelFits$`Intercept & Slope`)[2], linetype=2) +
+    labs(x="School Type", y="Parameter Estimate")
+```
+
+For these three schools, calculate and plot the estimated school regression line in both ways, together with the data. Comment on the differences and similarities.
+
+\newpage
+
+## References  
+Raftery, Adrian E. 1995. "Bayesian Model Selection in Social Research". Sociological Methodology. Vol 25, 111-163.  
+Gelman, Andrew and Jennifer Hill 2007. Data Analysis Using Regression and Multilevel/Hierarchical Models. Cambridge University Press. 
