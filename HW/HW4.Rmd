@@ -45,14 +45,14 @@ Fit the multilevel model with varying intercepts and slopes for retained. Compar
 $$
 \begin{aligned}
 \text{Model 1: HM Intercept \& Slope} \\
-y_i = \beta_0 + \beta_1 \times \text{Retained}_{j} + 
+y_i = \beta_0 + \beta_1 \times \text{Retained}_{j} +
     \alpha_{1j[i]} + \alpha_{2j[i]} \times \text{Retained}_{j} + \epsilon_i \\
 \epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
 \begin{bmatrix}
     \alpha_{1j} \\
     \alpha_{2j} \\
-\end{bmatrix} \sim 
-\text{MVN}\Bigg( 
+\end{bmatrix} \sim
+\text{MVN}\Bigg(
 \begin{bmatrix}
     0 \\
     0 \\
@@ -68,14 +68,14 @@ $$
 $$
 \begin{aligned}
 \text{Model 2: HM Intercept} \\
-y_i = \beta_0 + \beta_1 \times \text{Retained}_{j} + 
+y_i = \beta_0 + \beta_1 \times \text{Retained}_{j} +
     \alpha_{1j[i]} + \epsilon_i \\
 \epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_y) \\
 \alpha_j  \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2_\alpha)
 \end{aligned}
 $$
 
-Above are the model functional forms for the intercept only random effect with a fixed slope, Model 2, as well as a model with random intercepts and slopes, Model 1. In our formulation Model 1 has 2 extra apramters to fit compared to Model 2, and additional $\alpha$ parameter as well as a $\rho$ parameter. We may use a chi squared test here to compare the two models as described in Gelman and Hill 20017 since Model 2 is nested in Model 1. In order to be thourough we may also compare the BIC of both models as described in Rafery 1995. Table 1 shows the Chi Squate test with 2 defrees of freedom as well as the BIC of both models. The BIC for Model 2 is lower by more than 10 indicating strong evidenece for the more parsimonious model. In addition, the Chi square test indicates that we cant not reject the null Hypothesis that Model 1's additional parameters offer a better model to the data than Model 2. 
+Above are the model functional forms for the intercept only random effect with a fixed slope, Model 2, as well as a model with random intercepts and slopes, Model 1. In our formulation Model 1 has 2 extra parameters to fit compared to Model 2, an additional $\alpha$ parameter as well as a $\rho$ parameter. We may use a chi squared test here to compare the two models as described in Gelman and Hill 20017 since Model 2 is nested in Model 1. In order to be thorough we may also compare the BIC of both models as described in Raftery 1995. Table 1 shows the Chi Square test with 2 degrees of freedom as well as the BIC of both models. The BIC for Model 2 is lower by more than 10 indicating strong evidence for the more parsimonious model. In addition, the Chi square test indicates that we cant not reject the null hypothesis that Model 1's additional parameters offer a better model to the data than Model 2, adding further evidence to selecting the simpler model.  
 
 ```{r Q1a, message=FALSE, warning=FALSE, echo=FALSE}
 modelFF <- list(
@@ -93,14 +93,12 @@ anova(modelFits[[1]], modelFits[[2]]) %>%
 
 ### Question 2  
 
-For each school compute the OLS regression line based on the data for that school only, and the difference between the OLS regression coefficient estimate for retained and the multilevel estimate of the slope for retained. Which school has the largest positive difference between the two estimates of the slope? Which school has the largest negative difference? Which school has the smallest absolute difference?  
-
 ```{r Q2a, message=FALSE, warning=FALSE, echo=FALSE}
 slopeEstDF <- left_join(
     bind_rows(lapply(levels(schoolDF$schoolid), function(id){
         subModel <- lm(math ~ retained, data=filter(schoolDF, schoolid == id))
         tibble(
-            schoolid=id, 
+            schoolid=id,
             LMest=coefficients(subModel)[2],
             LMlow=confint(subModel)[2,1],
             LMhi=confint(subModel)[2,2])})),
@@ -114,19 +112,29 @@ slopeEstDF <- left_join(
             (se.fixef(modelFits$`Intercept & Slope`)[2])^2)) %>%
         mutate(HMlow=HMest - 1.96*se, HMhi=HMest + 1.96*se) %>%
         select(-se),
-    
+
     by="schoolid") %>%
     mutate(absDiff=abs(LMest - HMest), diff=LMest-HMest)
 
 
 naEstimatesN <- sum(is.na(slopeEstDF$LMest))
-smallAbsDiff <- 
+smallAbsDiff <-
     slopeEstDF$schoolid[which(min(slopeEstDF$absDiff, na.rm=T) == slopeEstDF$absDiff)]
-largePosDiff <- 
+largePosDiff <-
     slopeEstDF$schoolid[which(max(slopeEstDF$diff, na.rm=T) == slopeEstDF$diff)]
-largeNegDiff <- 
+largeNegDiff <-
     slopeEstDF$schoolid[which(min(slopeEstDF$diff, na.rm=T) == slopeEstDF$diff)]
+```
 
+For each school compute the OLS regression line based on the data for that school only, and the difference between the OLS regression coefficient estimate for retained and the multilevel estimate of the slope for retained. Which school has the largest positive difference between the two estimates of the slope? Which school has the largest negative difference? Which school has the smallest absolute difference?  
+
+For these three schools, calculate and plot the estimated school regression line in both ways, together with the data. Comment on the differences and similarities.
+
+When we try to compute a model with an intercept and a slope for the retained status for each school independently we quickly find that for any school that has no variation in the students retained status the model is unable to converge. There are a total `r naEstimatesN` models which were unable to provide estimates for the retained $\beta$ coefficient. Of the schools that did converge school `r largePosDiff` had the largest positive difference, school `r largeNegDiff` had the largest negative difference, and school `r smallAbsDiff` had the smallest absolute difference. It is not surprising that school `r smallAbsDiff` had the smallest difference in its estimate as it had not only a large sample size, 80, but also a relatively larger proportion of students who were retained, 10%.
+
+In Figure 1 we see the school level estimates for the slope for the three schools mentioned above. For each estimate we see that the confidence interval for the Hierarchical Model (HM) is smaller, in part because of the partially pooled inference. In addition the estimates for the large negative and large positive difference have been pooled towards the mean shown as the dotted line in the figure, again a function of the partially pooled modeling strategy.  
+
+```{r Q2b, message=FALSE, warning=FALSE, echo=FALSE, fig.width=6, fig.height=4,  fig.cap="\\label{fig:fig1}Slope Estimates for Select Schools"}
 typeDiff <- c(
     "Large Negative Difference",
     "Large Positive Difference",
@@ -152,10 +160,9 @@ slopeEstDF %>%
     labs(x="School Type", y="Parameter Estimate")
 ```
 
-For these three schools, calculate and plot the estimated school regression line in both ways, together with the data. Comment on the differences and similarities.
 
 \newpage
 
 ## References  
 Raftery, Adrian E. 1995. "Bayesian Model Selection in Social Research". Sociological Methodology. Vol 25, 111-163.  
-Gelman, Andrew and Jennifer Hill 2007. Data Analysis Using Regression and Multilevel/Hierarchical Models. Cambridge University Press. 
+Gelman, Andrew and Jennifer Hill 2007. Data Analysis Using Regression and Multilevel/Hierarchical Models. Cambridge University Press.

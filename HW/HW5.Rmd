@@ -1,0 +1,155 @@
+---
+title: "HW5"
+author: Neal Marquez
+date: "February 8th, 2019"
+output:
+  pdf_document:
+    fig_caption: yes
+---
+
+```{r libs, message=FALSE, warning=FALSE, echo=FALSE}
+rm(list=ls())
+library(MASS)
+library(mlmRev)
+library(lme4)
+library(arm)
+library(numDeriv)
+library(knitr)
+library(tidyverse)
+library(parallel)
+library(formula.tools)
+
+preDF <- guPrenat %>%
+    mutate(ssDistDM = ssDist - mean(ssDist)) %>%
+    mutate(prenatMOD = prenat == "Modern") %>%
+    as_tibble
+
+expand_formula <- function(ff){
+    mvars <- all.vars(ff)[-1]
+    base <- update(ff, ~ . + (1|cluster))
+    if(length(mvars) == 0){
+        return(list(base))
+    }
+    nm <- length(mvars)
+    
+    ffHM <- unlist(lapply(1:nm,function(i){
+        sapply(combn(1:nm, i, simplify=F), function(idx){
+            update(ff, paste0(
+                "~ . + (1 + ",
+                paste(mvars[idx], collapse=" + "),
+                "| cluster)"))
+        })
+    }))
+    
+    return(c(base, ffHM))
+}
+
+```
+
+## Homework 5
+
+This homework uses data from the 1987 National Survey of Maternal and Child Health in Guatamala, available as the `guPrenat` dataset in the `mlmRev` `R` package. This gives data on 2,449 children in 161 communities. Modern prenatal care (`prenat`) is the outcome variable, and community (`cluster`) is the grouping variable. We will consider the micro-level predictor variables child's age (`childAge`), child's ethnicity (`indig`), and mother's education (`momEd`). We will consider the macro-level predictor `ssDist`, the distance from the community to the nearest clinic. 
+
+### Question 1  
+
+_List and estimate the multilevel models that could reasonably be considered for these data_
+
+For this exercise we consider the four covariates, `childAge`, `indig`, `momEd`, and `ssDist` in predicting for the binary outcome variable of interest `prenat`. Unique combinations of the four covariates leave us with a total of 16 covariate combination lnear models to test, 4 single covariate models, 6 two covariate models, 4 three covariate models, 1 four covariate model, and an intercept only model. In addition, each of these linear models may include a number of random effects equal to ($m^2$) where $m$ is the number of covariates for that particular model. This gives us an additional 81 hierarchical models to test. The most complex model is written below however all models follow a similar structure with either the covariate number reduced or the number of random effect numbers reduces. In the specification $i$ denotes an individual child and $j$ denotes a cluster. Note that a random effect was only considered for addition in the model if its corrsponding fixed effect was included as well.
+
+$$
+\begin{aligned}
+\text{Model 1: Saturated Model} \\
+\text{logit}(y_i) = \beta_0 + \beta_1 \times \text{childAge3+}_{i} +\\
+      \beta_2 \times \text{indigNoSpa}_{i} + \beta_3 \times \text{indigSpanish}_{i} +\\
+      \beta_4 \times \text{momEdPrimary}_{i} + \beta_5 \times \text{momEdSecondary}_{i} +\\
+      \beta_6 \times \text{ssDist}_{j} + \\
+      \alpha_{0j} + \alpha_{1j} \times \text{childAge3+}_{i} +\\
+      \alpha_{2j} \times \text{indigNoSpa}_{i} + \alpha_{3j} \times \text{indigSpanish}_{i} +\\
+      \alpha_{4j} \times \text{momEdPrimary}_{i} + \alpha_{5j} \times \text{momEdSecondary}_{i} +\\
+      \alpha_{6j} \times \text{ssDist}_{j} \\
+\begin{bmatrix}
+    \alpha_{0j} \\
+    \alpha_{1j} \\
+    \alpha_{2j} \\
+    \alpha_{3j} \\
+    \alpha_{4j} \\
+    \alpha_{5j} \\
+    \alpha_{6j} \\
+\end{bmatrix} \sim
+\text{MVN}\Bigg(
+\begin{bmatrix}
+    0 \\
+    0 \\
+    0 \\
+    0 \\
+    0 \\
+    0 \\
+    0 \\
+\end{bmatrix},
+\Sigma
+\Bigg) \\
+\Sigma =
+\begin{cases} 
+\sigma_{\alpha k}^2 ,& \text{if } k == l \\ 
+\rho_{kl}\sigma_{\alpha k}\sigma_{\alpha l} ,& \text{else if } k < l; ~ \text{for } k,l=0,\dots,6 \\
+\rho_{lk}\sigma_{\alpha k}\sigma_{\alpha l}, & \text{otherwise}
+\end{cases}
+\end{aligned}
+$$
+
+## Question 2  
+_Which model or models is best among those you estimated? Give reasons for your answer._
+
+Using the `BIC` as our tool for evaluating models we find that of all the models fit, the 10 models with the best performance were all of the hierarchical variety. Table 1 shows the BIC of theses models and the corresponding `R` formula call that generated the results of the model. The best performing model outperfromed the second best by a differnce of 5 indicating positive evidence for increased posterior odds of model performance on the data as suggested in Raftery 1995.
+
+```{r Q1a, message=FALSE, warning=FALSE, echo=FALSE}
+covars <- c("childAge", "indig", "momEd", "ssDistDM")
+
+n <- length(covars)
+
+ffLM <- c(prenat ~ 1, unlist(lapply(1:n,function(i){
+    sapply(combn(1:n, i, simplify=FALSE), function(idx){
+        as.formula(paste0("prenatMOD ~ ", paste(covars[idx], collapse=" + ")))
+    })
+})))
+
+ffHM <- unlist(lapply(ffLM, expand_formula), recursive=FALSE)
+
+fittedLM <- lapply(ffLM, glm, data=preDF, family=binomial)
+
+if(!file.exists("./fittedHM.Rds")){
+    fittedHM <- mclapply(ffHM, glmer, data=preDF, family=binomial, mc.cores=4)
+    saveRDS(fittedHM, "./fittedHM.Rds")
+}
+
+fittedHM <- read_rds("./fittedHM.Rds")
+
+modelResDF <- bind_rows(
+    tibble(
+    `Functional Form` = sapply(ffLM, function(x) Reduce(paste, deparse(x))),
+    `Model Type` = "Linear Model",
+    BIC = sapply(fittedLM, BIC),
+    `Model Fit` = fittedLM
+    ),
+    tibble(
+    `Functional Form` = sapply(ffHM, function(x) Reduce(paste, deparse(x))),
+    `Model Type` = "Hierarchical Model",
+    BIC = sapply(fittedHM, BIC),
+    `Model Fit` = fittedHM
+    )) %>%
+    mutate(`Functional Form` = str_sub(`Functional Form`, 13, -1)) %>%
+    mutate(`Functional Form` = gsub("\\s+", " ", `Functional Form`)) %>%
+    arrange(BIC)
+
+modelResDF %>%
+    select(-`Model Fit`) %>%
+    head(n=10) %>%
+    rename(`R GLMER Model Call` = `Functional Form`) %>%
+    kable(caption="10 Best Performing Models by BIC")
+```
+
+\newpage
+
+## References  
+Raftery, Adrian E. 1995. "Bayesian Model Selection in Social Research". Sociological Methodology. Vol 25, 111-163.  
+Gelman, Andrew and Jennifer Hill 2007. Data Analysis Using Regression and Multilevel/Hierarchical Models. Cambridge University Press.
