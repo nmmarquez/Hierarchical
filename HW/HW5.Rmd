@@ -63,7 +63,7 @@ This homework uses data from the 1987 National Survey of Maternal and Child Heal
 
 _List and estimate the multilevel models that could reasonably be considered for these data_
 
-For this exercise we consider the four covariates, `childAge`, `indig`, `momEd`, and `ssDist` in predicting for the binary outcome variable of interest `prenat`. Unique combinations of the four covariates leave us with a total of 16 covariate combination linear models to test, 4 single covariate models, 6 two covariate models, 4 three covariate models, 1 four covariate model, and an intercept only model. In addition, each of these linear models may include a number of random effects equal to ($m^2$) where $m$ is the number of covariates for that particular model. This gives us an additional 81 hierarchical models to test. The most complex model is written below however all models follow a similar structure with either the covariate number reduced or the number of random effect numbers reduces. In the specification $i$ denotes an individual child and $j$ denotes a cluster. Note that a random effect was only considered for addition in the model if its corresponding fixed effect was included as well. We do not include any models that did not reach convergence through the default settings for `stats` and `lmer`. We set the $\alpha$ value of significance to .05 apriori.
+For this exercise we consider the four covariates, `childAge`, `indig`, `momEd`, and `ssDist` in predicting for the binary outcome variable of interest `prenat`. Unique combinations of the four covariates leave us with a total of 16 covariate combination linear models to test, 4 single covariate models, 6 two covariate models, 4 three covariate models, 1 four covariate model, and an intercept only model. In addition, each of these linear models may include a number of random effects equal to ($m^2$) where $m$ is the number of covariates for that particular model. This gives us an additional 54 hierarchical models to test. The most complex model is written below however all models follow a similar structure with either the covariate number reduced or the number of random effect numbers reduces. In the specification $i$ denotes an individual child and $j$ denotes a cluster. Note that a random effect was only considered for addition in the model if its corresponding fixed effect was included as well. We do not include any models that did not reach convergence through the default settings for `stats` and `lmer`. We set the $\alpha$ value of significance to .05 apriori.
 
 $$
 \begin{aligned}
@@ -74,8 +74,7 @@ $$
       \beta_6 \times \text{ssDist}_{j} + \\
       \alpha_{0j} + \alpha_{1j} \times \text{childAge3+}_{i} +\\
       \alpha_{2j} \times \text{indigNoSpa}_{i} + \alpha_{3j} \times \text{indigSpanish}_{i} +\\
-      \alpha_{4j} \times \text{momEdPrimary}_{i} + \alpha_{5j} \times \text{momEdSecondary}_{i} +\\
-      \alpha_{6j} \times \text{ssDist}_{j} \\
+      \alpha_{4j} \times \text{momEdPrimary}_{i} + \alpha_{5j} \times \text{momEdSecondary}_{i} \\
 \begin{bmatrix}
     \alpha_{0j} \\
     \alpha_{1j} \\
@@ -83,11 +82,9 @@ $$
     \alpha_{3j} \\
     \alpha_{4j} \\
     \alpha_{5j} \\
-    \alpha_{6j} \\
 \end{bmatrix} \sim
 \text{MVN}\Bigg(
 \begin{bmatrix}
-    0 \\
     0 \\
     0 \\
     0 \\
@@ -100,7 +97,7 @@ $$
 \Sigma =
 \begin{cases}
 \sigma_{\alpha k}^2 ,& \text{if } k == l \\
-\rho_{kl}\sigma_{\alpha k}\sigma_{\alpha l} ,& \text{else if } k < l; ~ \text{for } k,l=0,\dots,6 \\
+\rho_{kl}\sigma_{\alpha k}\sigma_{\alpha l} ,& \text{else if } k < l; ~ \text{for } k,l=0,\dots,5 \\
 \rho_{lk}\sigma_{\alpha k}\sigma_{\alpha l}, & \text{otherwise}
 \end{cases}
 \end{aligned}
@@ -123,6 +120,7 @@ ffLM <- c(prenat ~ 1, unlist(lapply(1:n,function(i){
 })))
 
 ffHM <- unlist(lapply(ffLM, expand_formula), recursive=FALSE)
+ffHM <- ffHM[!grepl("ssDistDM \\| cluster", sapply(ffHM, as.character))]
 
 fittedLM <- lapply(ffLM, glm, data=preDF, family=binomial)
 
