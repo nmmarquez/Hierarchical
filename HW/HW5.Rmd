@@ -31,7 +31,7 @@ expand_formula <- function(ff){
         return(list(base))
     }
     nm <- length(mvars)
-    
+
     ffHM <- unlist(lapply(1:nm,function(i){
         sapply(combn(1:nm, i, simplify=F), function(idx){
             update(ff, paste0(
@@ -40,21 +40,30 @@ expand_formula <- function(ff){
                 "| cluster)"))
         })
     }))
-    
+
     return(c(base, ffHM))
+}
+
+predict_se <- function(model, newdata){
+    terms <- attr(terms(formula(model)), "term.labels")
+    pos <- grep("\\|", attr(terms(formula(model)), "term.labels"), invert=TRUE)
+    ff <- paste0("~ ", paste(terms[pos], collapse=" + "))
+    Designmat <- model.matrix(~ indig + momEd + ssDistDM, newdata)
+    predvar <- diag(Designmat %*% vcov(model) %*% t(Designmat))
+    sqrt(predvar)
 }
 
 ```
 
 ## Homework 5
 
-This homework uses data from the 1987 National Survey of Maternal and Child Health in Guatamala, available as the `guPrenat` dataset in the `mlmRev` `R` package. This gives data on 2,449 children in 161 communities. Modern prenatal care (`prenat`) is the outcome variable, and community (`cluster`) is the grouping variable. We will consider the micro-level predictor variables child's age (`childAge`), child's ethnicity (`indig`), and mother's education (`momEd`). We will consider the macro-level predictor `ssDist`, the distance from the community to the nearest clinic. 
+This homework uses data from the 1987 National Survey of Maternal and Child Health in Guatamala, available as the `guPrenat` dataset in the `mlmRev` `R` package. This gives data on 2,449 children in 161 communities. Modern prenatal care (`prenat`) is the outcome variable, and community (`cluster`) is the grouping variable. We will consider the micro-level predictor variables child's age (`childAge`), child's ethnicity (`indig`), and mother's education (`momEd`). We will consider the macro-level predictor `ssDist`, the distance from the community to the nearest clinic.
 
 ### Question 1  
 
 _List and estimate the multilevel models that could reasonably be considered for these data_
 
-For this exercise we consider the four covariates, `childAge`, `indig`, `momEd`, and `ssDist` in predicting for the binary outcome variable of interest `prenat`. Unique combinations of the four covariates leave us with a total of 16 covariate combination lnear models to test, 4 single covariate models, 6 two covariate models, 4 three covariate models, 1 four covariate model, and an intercept only model. In addition, each of these linear models may include a number of random effects equal to ($m^2$) where $m$ is the number of covariates for that particular model. This gives us an additional 81 hierarchical models to test. The most complex model is written below however all models follow a similar structure with either the covariate number reduced or the number of random effect numbers reduces. In the specification $i$ denotes an individual child and $j$ denotes a cluster. Note that a random effect was only considered for addition in the model if its corrsponding fixed effect was included as well.
+For this exercise we consider the four covariates, `childAge`, `indig`, `momEd`, and `ssDist` in predicting for the binary outcome variable of interest `prenat`. Unique combinations of the four covariates leave us with a total of 16 covariate combination linear models to test, 4 single covariate models, 6 two covariate models, 4 three covariate models, 1 four covariate model, and an intercept only model. In addition, each of these linear models may include a number of random effects equal to ($m^2$) where $m$ is the number of covariates for that particular model. This gives us an additional 81 hierarchical models to test. The most complex model is written below however all models follow a similar structure with either the covariate number reduced or the number of random effect numbers reduces. In the specification $i$ denotes an individual child and $j$ denotes a cluster. Note that a random effect was only considered for addition in the model if its corresponding fixed effect was included as well. We do not include any models that did not reach convergence through the default settings for `stats` and `lmer`. We set the $\alpha$ value of significance to .05 apriori.
 
 $$
 \begin{aligned}
@@ -89,8 +98,8 @@ $$
 \Sigma
 \Bigg) \\
 \Sigma =
-\begin{cases} 
-\sigma_{\alpha k}^2 ,& \text{if } k == l \\ 
+\begin{cases}
+\sigma_{\alpha k}^2 ,& \text{if } k == l \\
 \rho_{kl}\sigma_{\alpha k}\sigma_{\alpha l} ,& \text{else if } k < l; ~ \text{for } k,l=0,\dots,6 \\
 \rho_{lk}\sigma_{\alpha k}\sigma_{\alpha l}, & \text{otherwise}
 \end{cases}
@@ -100,9 +109,9 @@ $$
 ## Question 2  
 _Which model or models is best among those you estimated? Give reasons for your answer._
 
-Using the `BIC` as our tool for evaluating models we find that of all the models fit, the 10 models with the best performance were all of the hierarchical variety. Table 1 shows the BIC of theses models and the corresponding `R` formula call that generated the results of the model. The best performing model outperfromed the second best by a differnce of 5 indicating positive evidence for increased posterior odds of model performance on the data as suggested in Raftery 1995.
+Using the `BIC` as our tool for evaluating models we find that of all the models fit, the 10 models with the best performance were all of the hierarchical variety. Table 1 shows the BIC of theses models and the corresponding `R` formula call that generated the results of the model. The best performing model outperformed the second best by a difference of 5 indicating positive evidence for increased posterior odds of model performance on the data as suggested in Raftery 1995.
 
-```{r Q1a, message=FALSE, warning=FALSE, echo=FALSE}
+```{r Q2a, message=FALSE, warning=FALSE, echo=FALSE}
 covars <- c("childAge", "indig", "momEd", "ssDistDM")
 
 n <- length(covars)
@@ -118,7 +127,10 @@ ffHM <- unlist(lapply(ffLM, expand_formula), recursive=FALSE)
 fittedLM <- lapply(ffLM, glm, data=preDF, family=binomial)
 
 if(!file.exists("./fittedHM.Rds")){
-    fittedHM <- mclapply(ffHM, glmer, data=preDF, family=binomial, mc.cores=4)
+    fittedHM <- mclapply(
+        ffHM, glmer, data=preDF, family=binomial,
+        control=glmerControl(optimizer="bobyqa"),
+        mc.cores=4)
     saveRDS(fittedHM, "./fittedHM.Rds")
 }
 
@@ -129,23 +141,129 @@ modelResDF <- bind_rows(
     `Functional Form` = sapply(ffLM, function(x) Reduce(paste, deparse(x))),
     `Model Type` = "Linear Model",
     BIC = sapply(fittedLM, BIC),
-    `Model Fit` = fittedLM
+    `Model Fit` = fittedLM,
+    Convergence = sapply(fittedLM, function(x) x$converged)
     ),
     tibble(
     `Functional Form` = sapply(ffHM, function(x) Reduce(paste, deparse(x))),
     `Model Type` = "Hierarchical Model",
     BIC = sapply(fittedHM, BIC),
-    `Model Fit` = fittedHM
+    `Model Fit` = fittedHM,
+    Convergence = sapply(fittedHM, function(x){
+        x@optinfo$conv$opt == 0 & is.null(x@optinfo$conv$lme4$code)
+    })
     )) %>%
     mutate(`Functional Form` = str_sub(`Functional Form`, 13, -1)) %>%
     mutate(`Functional Form` = gsub("\\s+", " ", `Functional Form`)) %>%
     arrange(BIC)
 
 modelResDF %>%
-    select(-`Model Fit`) %>%
+    filter(Convergence) %>%
+    select(-`Model Fit`, -Convergence) %>%
     head(n=10) %>%
     rename(`R GLMER Model Call` = `Functional Form`) %>%
     kable(caption="10 Best Performing Models by BIC")
+```
+
+## Question 3  
+
+_Plot the estimates for your preferred model in appropriate ways._
+
+```{r Q3a, message=FALSE, warning=FALSE, echo=FALSE, fig.width=6, fig.height=4, fig.cap="\\label{fig:fig1} Fixed Effect Coefficient Estimates with 95% CI"}
+bestModel <- modelResDF$`Model Fit`[[which(modelResDF$Convergence)[1]]]
+
+confIntDF <- bind_rows(
+    tibble(
+        par = names(fixef(bestModel)),
+        est = fixef(bestModel),
+        se = se.fixef(bestModel),
+        effect = "fixed"
+    ),
+    as_tibble(ranef(bestModel)$cluster) %>%
+        gather("par","est") %>%
+        mutate(se=c(se.ranef(bestModel)$cluster)) %>%
+        mutate(effect="random")) %>%
+    mutate(low=est - 1.96*se, hi=est + 1.96*se) %>%
+    mutate(Significant=(low > 0 & hi >0) | (low < 0 & hi <0))
+
+# fixed effect plot
+confIntDF %>%
+    filter(effect=="fixed") %>%
+    ggplot(aes(x=par, y=est, ymin=low, ymax=hi, color=Significant)) +
+    geom_point() +
+    geom_errorbar(width = .3, alpha=.5) +
+    theme_classic() +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 55, vjust = .5)) +
+    geom_hline(yintercept = 0, linetype=2) +
+    labs(x="Parameter", y="Estimate")
+
+```
+
+```{r Q3b, message=FALSE, warning=FALSE, echo=FALSE, fig.width=6, fig.height=4, fig.cap="\\label{fig:fig2} Sorted Random Effect Estimates with 95% CI"}
+pSig <- confIntDF %>%
+    filter(effect=="random") %>%
+    group_by(Significant) %>%
+    summarize(n=n()) %>%
+    mutate(prop=n/sum(n)) %>%
+    filter(Significant) %>%
+    select(prop) %>%
+    unlist %>%
+    `*`(100) %>%
+    round(2)
+
+confIntDF %>%
+    filter(effect=="random") %>%
+    group_by(par) %>%
+    arrange(est) %>%
+    mutate(index=1:n()) %>%
+    ggplot(aes(x=index, y=est, ymin=low, ymax=hi, color=Significant)) +
+    geom_point() +
+    geom_errorbar(width = .3, alpha=.5) +
+    theme_classic() +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 55, vjust = .5)) +
+    geom_hline(yintercept = 0, linetype=2) +
+    theme(
+        axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()) +
+    labs(x="", y="Estimate") +
+    facet_wrap(~par, scales = "free_x")
+```
+
+# Question 4
+
+_Interpret the estimates from your preferred model._
+
+Figure 1 and 2 show the model estimates for both the fixed and random effects respectively. Of all the random effects present `r pSig` do not overlap with zero which is more than we would expect by random chance and gives weight to the inclusion of random intercepts in the model.  The fixed effect presented in Figure 1 show that all covarites included contributed to the prediction of the probability of seeking modern prenatal care at a significant level. Though the effect size for `ssDist` appears to be small in relation to other covariates, the comparison of this figure distorts its effect in relation to the observed variation of the covariate we see in the data. We may better see this effect by creating a new data set setting all factor variable at their mode, temporarily ignoring random effects, and varying `ssDist` the same degree to which we observe in the data and predicting probabilities for modern prenatal care. Figure 3 shows that as we increase `ssDist` we see strong changes in the probability of seeking modern care.
+
+
+```{r Q3c, message=FALSE, warning=FALSE, echo=FALSE, fig.width=6, fig.height=4, fig.cap="\\label{fig:fig3} CI Intervals of Underlying Probability Of Modern Care Across Observed Range of Distance from Clinic"}
+
+preDF %>%
+    summarize(
+        indig = names(sort(table(indig), TRUE))[1],
+        momEd = names(sort(table(momEd), TRUE))[1]) %>%
+    mutate(indig=factor(indig, levels=levels(preDF$indig))) %>%
+    mutate(momEd=factor(momEd, levels=levels(preDF$momEd))) %>%
+    cbind(tibble(ssDistDM=with(preDF, seq(
+        min(ssDistDM), max(ssDistDM), length.out=100)))) %>%
+    as_tibble %>%
+    mutate(ssDist=ssDistDM + mean(preDF$ssDist)) %>%
+    mutate(estLink=predict(bestModel, newdata=., re.form=~0)) %>%
+    mutate(est=predict(bestModel, newdata=., re.form=~0, type="response")) %>%
+    mutate(estLinkSE=predict_se(bestModel, .)) %>%
+    mutate(low=invlogit(estLink - 1.96*estLinkSE)) %>%
+    mutate(hi=invlogit(estLink + 1.96*estLinkSE)) %>%
+    ggplot(aes(x=ssDist, y=est, ymin=low, ymax=hi)) +
+    geom_line() +
+    geom_ribbon(alpha=.4) +
+    theme_classic() +
+    labs(
+        x="Distance from Clinic",
+        y="Estimated Probability of Modern Prenatal Care")
+
 ```
 
 \newpage
