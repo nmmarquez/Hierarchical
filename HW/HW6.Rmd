@@ -78,7 +78,7 @@ tibble(
 ```
 
 
-We can show hos this estimate compares to the frequentist approach by calculating the maximum likelihood estimate. We plot the posterior and the MLE in the plot below and show that the estimates are nearly identical. Indeed, when we use a uniform prior the posterior shape is strongly influenced by the likelihood.  
+We can show hos this estimate compares to the frequentist approach by calculating the maximum likelihood estimate. We plot the posterior and the MLE, $\frac{k}{n}$, in the plot below and show that the estimates are nearly identical. Indeed, when we use a uniform prior the posterior shape is strongly influenced by the likelihood.  
 
 ```{r}
 postDF <- tibble(x=seq(0,1, .0001), y=dbeta(seq(0,1, .0001), alpha_, beta_))
@@ -95,7 +95,7 @@ ggplot() +
 
 _Do the same calculations by Monte Carlo and compare the results._
 
-We can create a set of Monte Carlo results by simulating from the posterior distribution. This exercise is helpful as it shows that even when we do not know the closed form of the distribution of the posterior we may simulate from it and get accurate results here we take 10000 Monte Carlo simulations from the posterior and show how close it resemble the true posterior from question 1.
+We can create a set of Monte Carlo results by simulating from the posterior distribution. This exercise is helpful as it shows that even when we do not know the closed form of the distribution of the posterior we may simulate from it and get accurate results here we take 10000 Monte Carlo simulations from the posterior and show how close it resemble the true posterior from question 1. The plot below shows the estimated density from samples of the Monte Carlo simulation compared against the true posterior density.
 
 ```{r}
 set.seed(123)
@@ -130,9 +130,9 @@ simDF %>%
 ## Question 4  
 _Suppose it is known that it is rare for any candidate to get more than 80% of the votes in a two-person caucus. Specify a prior distribution to represent this information. Redo question 1 with this prior. Comment on the differences between the results with the two prior distributions._  
 
-We can specify a prior where the 95% confidence interval covers a range from .2 to .8 and is centered at .5. Finding this distribution is trivial because in order for the mean of any Beta distribution to be .5 $\alpha$ must equal $\beta$. This also gives us a symmetrical distribution. Finding the correct value of the parameters is simply a matter of solving a single equation of the cumulative density function (CDF) where the $F(x)$ where $x = .2$ is $.05$.  
+We can specify a prior where the 95% confidence interval covers a range from .2 to .8 and is centered at .5. Finding this distribution is trivial because in order for the mean of any Beta distribution to be .5 $\alpha$ must equal $\beta$. This is convenient as it also gives us a symmetrical distribution as skewness is 0 when $\alpha$ equals $\beta$. Finding the correct value of the parameters is simply a matter of solving a single equation of the cumulative density function (CDF) where the $F(x)$ where $x = .2$ is $.025$.  
 
-The CDF for a beta distribution is slightly complicated however we can use `R` to help us find the solution to this problem. The code below and the following plot shows how we calculate the correct parameters for the prior and the CDF of the resulting distribution.  
+The CDF for a beta distribution is slightly complicated, however, we can use `R` to help us find the solution to this problem. The code below and the following plot shows how we calculate the correct parameters for the prior and the CDF of the resulting distribution.  
 
 ```{r echo=TRUE}
 minFunc <- function(x) ((.025 - pbeta(.2, x, x))^2)^.5
