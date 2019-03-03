@@ -26,6 +26,8 @@ _Carry out a Bayesian analysis of the data from each of these schools separately
 
 ### A) Compute or approximate posterior means and 95% confidence regions for the mean and standard deviation from each school.  
 
+Recall that the posterior for the normal distribution parameters has conjugate priors using the following form.  
+
 $$
 \begin{aligned}
 p(\theta, \sigma^2 | y_1, \dots, y_n) &\propto
@@ -46,16 +48,18 @@ $$
 $$
 \begin{aligned}
 \theta | \sigma^2, y_1, \dots, y_n &\sim \mathcal{N}\Bigg(
-    \frac{\kappa_0 \mu_0 + n \overline y}{\kappa_0 + n} , 
+    \frac{\kappa_0 \mu_0 + n \overline y}{\kappa_0 + n} ,
     \frac{\sigma^2}{\kappa_0 + n} \Bigg) \\
-\frac{1}{\sigma^2} | y_1, \dots, y_n &\sim \text{Gamma} \Bigg( 
+\frac{1}{\sigma^2} | y_1, \dots, y_n &\sim \text{Gamma} \Bigg(
     \frac{\nu_0 + n}{2},
     .5 \Big(\nu_0 \sigma^2_0 + (n-1)s^2 + \frac{\kappa_0 n}{\kappa_0 + n}
     (\overline y -\mu_0)^2 \Big)\Bigg)
 \end{aligned}
 $$
 
-```{r}
+We may use Monte Carlo simulation to get the posterior of $\sigma^{-2}$ and then use Monte Carlo simulation again to simulate the posterior of $\theta$ conditional on $\sigma^2$. Figure 1 shows the bivariate plot of the posteriors of the two parameter estimates for both schools separately (median estimates at red line). Figures were created using 10,000 Monte Carlo simulations. Table 1 shows the posterior statistics of the two parameters estimated for each school, again independently.  
+
+```{r fig.cap="Posterior Estimates By School"}
 library(tidyverse)
 set.seed(123)
 N <- 10000
@@ -64,22 +68,22 @@ N <- 10000
 y1 <- c(2.1, 9.8, 13.9, 11.3, 8.9, 15.7, 16.4, 4.5, 8.9, 11.9, 12.5, 11.1, 11.6,
       14.5, 9.6, 7.4, 3.3, 9.1, 9.4, 6.0, 7.4, 8.5, 1.6, 11.4, 9.7)
 
-y2 <- c(0.3, 1.1, 6.5, 11.7, 6.5, 5.6, 14.6, 11.7, 9.1, 9.4, 10.6, 12.3, 9.5, 
+y2 <- c(0.3, 1.1, 6.5, 11.7, 6.5, 5.6, 14.6, 11.7, 9.1, 9.4, 10.6, 12.3, 9.5,
         0.6, 15.4, 5.3, 8.5, 3.0, 3.8, 6.2, 2.1, 6.6, 1.1)
 
-mcmcNormalPosterior <- function(y, N=10000, mu0 = 5, k0 = 1, s20 = 4, nu0 = 2){
+mcmcNormalPosterior <- function(y, N_=N, mu0 = 5, k0 = 1, s20 = 4, nu0 = 2){
     n <- length(y)
     ybar <- mean(y)
     s2 <- var ( y )
     # posterior inference
-    kn <- k0+n 
+    kn <- k0+n
     nun <- nu0+n
     mun <- ( k0 *mu0 + n* ybar ) / kn
     s2n <- (nu0 * s20 +(n-1)* s2 +k0 *n * ( ybar-mu0 )^2 / (kn))/(nun)
-    
-    sigma2Posterior <- rgamma(N, nun/2, nun *s2n*.5)^-1
-    muPosterior <- rnorm(N, mun, sqrt(sigma2Posterior / kn))
-    
+
+    sigma2Posterior <- rgamma(N_, nun/2, nun *s2n*.5)^-1
+    muPosterior <- rnorm(N_, mun, sqrt(sigma2Posterior / kn))
+
     tibble(postMu=muPosterior, postSig2=sigma2Posterior)
 }
 
@@ -87,7 +91,7 @@ postQ1 <- bind_rows(
     mcmcNormalPosterior(y1) %>%
         mutate(school=1),
     mcmcNormalPosterior(y2) %>%
-        mutate(school=2)) 
+        mutate(school=2))
 
 postQ1 %>%
     mutate(postSig=sqrt(postSig2)) %>%
@@ -100,5 +104,171 @@ postQ1 %>%
     facet_wrap(~school) +
     theme_classic() +
     geom_hline(aes(yintercept = medSig), linetype=3, color="red") +
-    geom_vline(aes(xintercept = medMu), linetype=3, color="red")
+    geom_vline(aes(xintercept = medMu), linetype=3, color="red") +
+    labs(x="Posterior Mean", y="Posterior Satandard Deviation")
+```
+
+```{r}
+postQ1 %>%
+    mutate(postSig=sqrt(postSig2)) %>%
+    select(-postSig2) %>%
+    gather("Statistic", "value", -school) %>%
+    mutate(Statistic=c("Posterior St. Dev.",
+                       "Posterior Mean")[(Statistic == "postMu")+1]) %>%
+    group_by(school, Statistic) %>%
+    summarize(
+        Mean = mean(value),
+        `2.5 Quantile` = quantile(value, probs=.025),
+        `97.5 Quantile` = quantile(value, probs=.975)) %>%
+    rename(School=school) %>%
+    knitr::kable(caption="Posterior Statistics")
+```
+
+### B) Compute or approximate the posterior probability that students from School 1 spend less time studying on average than students from School 2.  
+
+```{r}
+diffDF <- postQ1 %>%
+    select(-postSig2, school) %>%
+    mutate(draw=rep(1:N, 2)) %>%
+    spread(school, postMu) %>%
+    mutate(schoolDiff = `2` - `1`)
+
+pLessThan2 <- round(mean(diffDF$schoolDiff > 0) * 100, 2)
+```
+
+With our 10000 simulations we may estimate the probability that students from School 1 spend less time studying on average than students from School 2 by subtracting the $\theta_2$ estimate from the $\theta_1$ estimate, the mean studying time for school 2 and 1 respectively, and calculating the proportion of differences that are greater than 0. We can also use these 10,000 differences to have a posterior estimate of the difference of the studying time between the two schools, Figure 2. We find that of these 10,000 posterior samples that `r pLessThan2`% of samples had students from school 2 studying on average more often than students from school 1. In other words the posterior probability that students from School 1 spend less time studying on average than students from School 2 is `r pLessThan2 / 100`.
+
+
+```{r fig.cap="Diffenece in Average Studying Time"}
+dens <- density(diffDF$schoolDiff)
+
+densDF <- tibble(x = dens$x, y = dens$y) %>%
+    mutate(variable = x>0)
+
+densDF %>%
+    ggplot(aes(x, y)) +
+    geom_line() +
+    geom_area(data = filter(densDF, variable), fill = "red") +
+    theme_classic() +
+    labs(x="School 2 - School 1 Average Time Study", y="")
+```
+
+### C)  For  School  1,  specify  an  approximate  unit-information  prior  and  redo  part (A) with this prior.  Compare the two priors and the resulting posteriors of the meanand standard deviation of the time spent studying in each school.  
+
+We may specify a unit information prior by setting $\mu_0=\overline{y_1}$, $\sigma_0^2 = \text{Var}(y_1)$, $\kappa_0=1$, and $\nu_0=1$. A unit information prior lets the data have a stronger influence on the outcome and is about equivalent to the amount of information that we have from one observation. Notice that the priors are derived from the data themselves from school 1 however we will apply this prior to both our analysis of school 1 and school 2. Figure 3 shows a comparison between the priors from questions 1A and 1C.  
+
+```{r fig.cap="Unit Information Priors"}
+my1 <- mean(y1)
+vy1 <- var(y1)
+postQ1C <- bind_rows(
+    mcmcNormalPosterior(y1, N, my1, 1, vy1, 1) %>%
+        mutate(school=1, uipPrior=TRUE),
+    mcmcNormalPosterior(y2, N, my1, 1, vy1, 1) %>%
+        mutate(school=2, uipPrior=TRUE),
+    postQ1 %>%
+        mutate(uipPrior=FALSE))
+
+zScore <- function(x){
+    sdx <- sd(x)
+    mux <- mean(x)
+    (x-mux)/sdx
+}
+
+bind_rows(
+    tibble(draw=1:N, prec=rgamma(N, 2/2, 2/2*4), uip=F) %>%
+        mutate(mu=rnorm(N, 5, sqrt((4^-1)/1))),
+    tibble(draw=1:N, prec=rgamma(N, 1/2, 1/2*vy1), uip=T) %>%
+        mutate(mu=rnorm(N, my1, sqrt((vy1^-1)/1)))) %>%
+    gather("Statistic", "Value", -draw, -uip) %>%
+    group_by(Statistic, uip) %>%
+    ggplot(aes(x=Value, fill=uip)) +
+    geom_density(alpha=.3) +
+    theme_classic() +
+    facet_wrap(~Statistic, scales = "free") +
+    labs(x="x", y="Desnity", fill="Unit\nInformation\nPrior")
+```
+
+\newpage  
+
+Despite the priors placing their mass on different areas we find that the posterior of both school estimates are largely similar no matter what the prior that was used as seen in Figure 4. This lends evidence that our analysis is largely insensitive to the specification of priors as long as they are sufficiently weak. The data evidence here is overwhelming and will lead to similar conclusions despite the different priors.  
+
+```{r fig.cap="Posteriors from two different sets of priors"}
+postQ1C %>%
+    mutate(postSig=sqrt(postSig2)) %>%
+    select(-postSig2) %>%
+    rename(Mean=postMu, `Std. Dev.`=postSig) %>%
+    gather("Statistic", "Value", -school, -uipPrior) %>%
+    ggplot(aes(x=Value, fill=uipPrior)) +
+    geom_density(alpha=.3) +
+    theme_classic() +
+    facet_grid(school~Statistic, scales = "free") +
+    labs(x="x", y="Desnity", fill="Unit\nInformation\nPrior")
+```
+
+## Question 2  
+
+_As in previous homeworks, this question uses data from the 1975 U.S. Sustaining Effects Study of elementary education, available as the `egsingle` dataset in the `mlmRev` `R` package.  This gives data on 1,721 students in 60 schools.  We will take `math` (Mathematics achievement score) as the outcome variable, and `schoolid` (the code for theschool the student attends) as the grouping variable.  We will use only the data for year 0.5 (for which there are data on 1672 students)._
+
+### A) Write out the Bayesian random effects one-way analysis of variance model for these data. What are the unknown parameters to be estimated?  How many of them are there?
+
+Below we show the full hierarchy for a Bayesian one way analysis of variance model with priors. Line 1 of the specification shows that the observations are conditional on a set of parameters $\boldsymbol \alpha, \mu_\alpha, \sigma_\alpha , \sigma_y$. The symbol $\boldsymbol \alpha$ is itself a vector of parameters, 1 for each school, that must be estimated giving us a total of 63 parameters to estimate.
+
+$$
+\begin{aligned}
+y_i | \boldsymbol \alpha, \mu_\alpha, \sigma_\alpha , \sigma_y &\sim
+    \mathcal{N}(\alpha_{j[i]}, \sigma^2_y) \\  
+\alpha_j &\sim \mathcal{N} (\mu_\alpha, \sigma_\alpha^2) \\
+\frac{1}{\sigma^2_y} &\sim
+    \text{Gamma}(\frac{\nu_0}{2}, \frac{\nu_0 \sigma^2_0}{2}) \\
+\frac{1}{\sigma^2_\alpha} &\sim
+    \text{Gamma}(\frac{\eta_0}{2}, \frac{\eta_0 \tau^2_0}{2}) \\
+\mu_\alpha | \sigma^2_\alpha &\sim \mathcal{N}(\mu_0, \frac{\sigma^2_\alpha}{\kappa_0})
+\end{aligned}
+$$
+
+### B) Specify and plot a reasonable prior distributions for the parameters. Explain your reasoning.  
+
+If we would like for the data to inform the prior as much as possible we may set unit information priors such that  $\nu_0 = 1, \eta_0 = 1, \kappa_0 = 1, \sigma^2_0 = s^2, \mu_0 = m^{-1}\sum_j^m \overline{y_j}, \tau^2_0 = \text{Var}(\overline{\boldsymbol{y}_j})$. Note that $\mu_0$ and $\tau_0^2$ refer to the mean of the school means and the variance of the school means respectively. We plot these priors in Figure 5.
+
+```{r fig.cap="Bayesian Anova Priors"}
+library(mlmRev)
+library(latex2exp)
+
+DF <- egsingle %>%
+    filter(year == .5)
+
+schoolDF <- DF %>%
+    group_by(schoolid) %>%
+    summarize(mmath=mean(math))
+
+s20 <- var(DF$math)
+mu0 <- mean(schoolDF$mmath)
+t20 <- var(schoolDF$mmath)
+
+xvec <- seq(-10, 10, length.out=1000)
+labs_ <- c(
+    aj=TeX("$\\alpha_j$"),
+    mua=TeX("$\\mu_\\alpha$"),
+    sigmayneg2=TeX("$\\sigma_y^{-2}$"),
+    sigmaaneg2=TeX("$\\sigma_{\\alpha}^{-2}$"))
+
+labs_ <- c(
+    aj="~alpha[j]",
+    mua="~mu[~alpha]",
+    sigmayneg2="~sigma[y]^-2",
+    sigmaaneg2="~sigma[~alpha]^-2")
+
+
+tibble(x=xvec) %>%
+    mutate(sigmayneg2=dgamma(x, .5, .5 * s20)) %>%
+    mutate(sigmaaneg2=dgamma(x, .5, .5 * t20)) %>%
+    mutate(mua=dnorm(xvec, mu0, sqrt(s20))) %>%
+    mutate(aj=dnorm(xvec, mu0, sqrt(t20))) %>%
+    gather("Parameter", "Density", -x) %>%
+    filter(Density > .001) %>%
+    mutate(Parameter=labs_[Parameter]) %>%
+    ggplot(aes(x=x, y=Density)) +
+    geom_line() +
+    facet_wrap(~Parameter, scales="free", labeller = label_parsed) +
+    theme_classic()
 ```
