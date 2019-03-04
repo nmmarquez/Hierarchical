@@ -228,7 +228,7 @@ $$
 
 ### B) Specify and plot a reasonable prior distributions for the parameters. Explain your reasoning.  
 
-If we would like for the data to inform the prior as much as possible we may set unit information priors such that  $\nu_0 = 1, \eta_0 = 1, \kappa_0 = 1, \sigma^2_0 = s^2, \mu_0 = m^{-1}\sum_j^m \overline{y_j}, \tau^2_0 = \text{Var}(\overline{\boldsymbol{y}_j})$. Note that $\mu_0$ and $\tau_0^2$ refer to the mean of the school means and the variance of the school means respectively. We plot these priors in Figure 5.
+If we would like for the data to inform the prior as much as possible we may set unit information priors such that  $\nu_0 = 1, \eta_0 = 1, \kappa_0 = 1, \sigma^2_0 = s^2, \mu_0 = m^{-1}\sum_j^m \overline{y_j}, \tau^2_0 = \text{Var}(\overline{\boldsymbol{y}_j})$. Note that $\mu_0$ and $\tau_0^2$ refer to the mean of the school means and the variance of the school means respectively. Also note that these do not correspond to the MLE estimates of the parameters as each of the schools are weighted equally in the mean of means and variance of means calculations no matter how many students conttributed to a schools calculation. Checking the sensitivity of these priors is reccomended. We plotted the stated priors in Figure 5.
 
 ```{r fig.cap="Bayesian Anova Priors"}
 library(mlmRev)
