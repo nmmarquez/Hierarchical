@@ -57,7 +57,7 @@ $$
 \end{aligned}
 $$
 
-We may use Monte Carlo simulation to get the posterior of $\sigma^{-2}$ and then use Monte Carlo simulation again to simulate the posterior of $\theta$ conditional on $\sigma^2$. Figure 1 shows the bivariate plot of the posteriors of the two parameter estimates for both schools separately (median estimates at red line). Figures were created using 10,000 Monte Carlo simulations. Table 1 shows the posterior statistics of the two parameters estimated for each school, again independently.  
+We may use Monte Carlo simulation to get the posterior of $\sigma^{-2}$ and then use Monte Carlo simulation again to simulate the posterior of $\theta$ conditional on $\sigma^2$. Figure 1 shows the bivariate plot of the posteriors of the two parameter estimates for both schools separately (median estimates at red line). The bivariate plots are shown here to observe possible correlations between the poster mean and standard deviation. If the posterior estimates of the parameters were correlated then the countours would be at an angle rather than uniformly distributed as observed. Table 1 shows the posterior statistics of the two parameters estimated for each school, again independently.  Estimates and figures were created using 10,000 Monte Carlo simulations.
 
 ```{r fig.cap="Posterior Estimates By School"}
 library(tidyverse)
@@ -105,7 +105,7 @@ postQ1 %>%
     theme_classic() +
     geom_hline(aes(yintercept = medSig), linetype=3, color="red") +
     geom_vline(aes(xintercept = medMu), linetype=3, color="red") +
-    labs(x="Posterior Mean", y="Posterior Satandard Deviation")
+    labs(x="Posterior Mean", y="Posterior Standard Deviation")
 ```
 
 ```{r}
@@ -174,18 +174,32 @@ zScore <- function(x){
     (x-mux)/sdx
 }
 
+xvec <- seq(-2, 22, length.out=1000)
+
+labs_ <- c(
+    mu="~theta",
+    sigmayneg2="~sigma^-2")
+
 bind_rows(
-    tibble(draw=1:N, prec=rgamma(N, 2/2, 2/2*4), uip=F) %>%
-        mutate(mu=rnorm(N, 5, sqrt((4^-1)/1))),
-    tibble(draw=1:N, prec=rgamma(N, 1/2, 1/2*vy1), uip=T) %>%
-        mutate(mu=rnorm(N, my1, sqrt((vy1^-1)/1)))) %>%
-    gather("Statistic", "Value", -draw, -uip) %>%
-    group_by(Statistic, uip) %>%
-    ggplot(aes(x=Value, fill=uip)) +
-    geom_density(alpha=.3) +
+    tibble(x=xvec) %>%
+        mutate(sigmayneg2=dgamma(x, 2/2, 2/2*4)) %>%
+        mutate(mu=dnorm(x, 5, sqrt(4))) %>%
+        mutate(uip=F),
+    tibble(x=xvec) %>%
+        mutate(sigmayneg2=dgamma(x, 1/2, 1/2*vy1)) %>%
+        mutate(mu=dnorm(x, my1, sqrt(vy1))) %>%
+        mutate(uip=T)) %>%
+    gather("Parameter", "Density", -x, -uip) %>%
+    group_by(Parameter, x) %>%
+    mutate(maxdens=max(Density)) %>%
+    filter(maxdens > .001) %>%
+    ungroup %>%    
+    mutate(Parameter=labs_[Parameter]) %>%
+    ggplot(aes(x=x, y=Density, color=uip)) +
+    geom_line() +
+    facet_wrap(~Parameter, scales="free", labeller = label_parsed) +
     theme_classic() +
-    facet_wrap(~Statistic, scales = "free") +
-    labs(x="x", y="Desnity", fill="Unit\nInformation\nPrior")
+    labs(x="x", y="Desnity", color="Unit\nInformation\nPrior")
 ```
 
 \newpage  
@@ -246,11 +260,6 @@ mu0 <- mean(schoolDF$mmath)
 t20 <- var(schoolDF$mmath)
 
 xvec <- seq(-10, 10, length.out=1000)
-labs_ <- c(
-    aj=TeX("$\\alpha_j$"),
-    mua=TeX("$\\mu_\\alpha$"),
-    sigmayneg2=TeX("$\\sigma_y^{-2}$"),
-    sigmaaneg2=TeX("$\\sigma_{\\alpha}^{-2}$"))
 
 labs_ <- c(
     aj="~alpha[j]",
