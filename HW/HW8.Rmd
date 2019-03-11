@@ -1,0 +1,124 @@
+---
+title: "HW8"
+author: Neal Marquez
+date: "March 10th, 2019"
+output:
+  pdf_document:
+    fig_caption: yes
+---
+
+As in previous homeworks, this question uses data from the 1975 U.S. Sustaining Effects Study of elementary education, available as the `egsingle` dataset in the `mlmRev` `R` package.This gives data on 1,721 students in 60 schools. We will take `math`(Mathematics achievement score) as the outcome variable, and `schoolid`(the code for the school the student attends) as the grouping variable.  We will use only the data for year 0.5 (for which there are data on 1672 students).
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+    fig.width=4.8, fig.height=3.6, echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(mlmRev)
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(lme4)
+set.seed(123)
+
+DF <- egsingle %>%
+    filter(year == .5) %>%
+    as_tibble
+```
+
+## Question 1
+
+_Estimate the Bayesian random effects one-way analysis of variance model for these data via Markov chain Monte Carlo using the prior distribution you specified in Homework 7._
+
+```{r include=F}
+schoolDF <- DF %>%
+    group_by(schoolid) %>%
+    summarize(mmath=mean(math))
+
+s20 <- var(DF$math)
+mu0 <- mean(schoolDF$mmath)
+t20 <- var(schoolDF$mmath)
+
+# Check out what the names of priors can be
+# get_prior(math ~ 1 + (1|schoolid), data=DF)
+# check out doccumentation on possible priors
+# https://mc-stan.org/docs/2_18/functions-reference
+
+prior <- c(
+    prior(normal(-0.3138749, 1.203647), class = Intercept),
+    prior(inv_gamma(.5, 0.6018236), class = sigma),
+    prior(inv_gamma(.5, 0.2877828), class = sd))
+
+modelFit <- brm(
+    math ~ 1 + (1|schoolid), data=DF, prior = prior,
+    cores=4, iter=10000)
+```
+
+## Question 2
+_Assess the convergence of your algorithm and whether it has run for enough iterations. If not, run it for longer._
+
+```{r}
+# check out the variables
+# get_variables(modelFit)
+
+modelFit %>%
+    spread_draws(b_Intercept, sd_schoolid__Intercept, sigma) %>%
+    filter(`.iteration` > 4000) %>%
+    gather("Parameter", "Estimate", b_Intercept:sigma) %>%
+    mutate(Chain=as.factor(`.chain`)) %>%
+    ggplot(aes(x=`.iteration`, y=Estimate, color=Chain, group=Chain)) +
+    geom_line(alpha=.5) +
+    theme_classic() +
+    facet_wrap(~Parameter, nrow=3, scales="free_y") +
+    labs(x="Iteration")
+```
+
+## Question 3
+_Summarize the posterior distribution you obtain in graphical and tabular form._
+
+```{r}
+modelFit %>%
+    spread_draws(b_Intercept, sd_schoolid__Intercept, sigma) %>%
+    gather("Parameter", "Estimate", b_Intercept:sigma) %>%
+    group_by(Parameter) %>%
+    median_qi(.width=.95) %>%
+    select(Parameter:`.upper`) %>%
+    rename(`2.5 CI`=`.lower`, `97.5 CI`=`.upper`) %>%
+    knitr::kable()
+```
+
+```{r}
+reDF <- modelFit %>%
+  spread_draws(b_Intercept, r_schoolid[schoolid,]) %>%
+  median_qi(school_mean = b_Intercept + r_schoolid, .width = c(.95))
+
+reDF %>%
+    arrange(school_mean) %>%
+    mutate(id=1:n()) %>%
+    ggplot(aes(y = id, x = school_mean)) +
+    geom_pointintervalh(size=.7) +
+    theme_classic() +
+    geom_vline(linetype=2, xintercept=summary(modelFit)$fixed[1]) +
+    theme(
+        axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()) +
+    labs(y="", x="Estimate")
+```
+
+## Question 4  
+_For which school is the difference between the non-Bayesian estimate and the Bayesian estimate of the group mean the largest?  Why do you think this school has the largest difference?_
+
+```{r}
+mleFit <- lmer(math ~ 1 + (1|schoolid), data=DF)
+
+coef(mleFit)$schoolid %>%
+    mutate(schoolid=as.numeric(row.names(.))) %>%
+    rename(estMLE=`(Intercept)`) %>%
+    left_join(reDF) %>%
+    mutate(estDiff=abs(estMLE-school_mean)) %>%
+    arrange(-estDiff)
+
+DF %>% group_by(schoolid) %>% summarise(n=n()) %>% arrange(n)
+```
