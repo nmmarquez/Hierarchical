@@ -20,18 +20,13 @@ library(tidyverse)
 library(brms)
 library(tidybayes)
 library(lme4)
+library(latex2exp)
 set.seed(123)
 
 DF <- egsingle %>%
     filter(year == .5) %>%
     as_tibble
-```
 
-## Question 1
-
-_Estimate the Bayesian random effects one-way analysis of variance model for these data via Markov chain Monte Carlo using the prior distribution you specified in Homework 7._
-
-```{r include=F}
 schoolDF <- DF %>%
     group_by(schoolid) %>%
     summarize(mmath=mean(math))
@@ -39,7 +34,38 @@ schoolDF <- DF %>%
 s20 <- var(DF$math)
 mu0 <- mean(schoolDF$mmath)
 t20 <- var(schoolDF$mmath)
+```
 
+## Question 1
+
+_Estimate the Bayesian random effects one-way analysis of variance model for these data via Markov chain Monte Carlo using the prior distribution you specified in Homework 7._
+
+Recall that we stated that if we would like for the data to inform the prior as much as possible we may set unit information priors such that  $\nu_0 = 1, \eta_0 = 1, \kappa_0 = 1, \sigma^2_0 = s^2, \mu_0 = m^{-1}\sum_j^m \overline{y_j}, \tau^2_0 = \text{Var}(\overline{\boldsymbol{y}_j})$. Here, $\mu_\alpha$ refers to the mean of the school means, $\sigma^2_\alpha$ refers to the between group variance, and $\sigma^2_y$ is the within group variance . Note that $\mu_0$ and $\tau_0^2$ refer to the mean of the school means and the variance of the school means respectively. Also note that these do not correspond to the MLE estimates of the parameters as each of the schools are weighted equally in the mean of means and variance of means calculations no matter how many students contributed to a schools calculation. We plot the stated priors in Figure 1. We then fit the model with STAN for MCMC inference which uses a No U-Turn Sampling (NUTS) algorithm.
+
+```{r fig.cap="Prior Distributions of Parameters"}
+xvec <- seq(-10, 10, length.out=1000)
+
+labs_ <- c(
+    aj="~alpha[j]",
+    mua="~mu[~alpha]",
+    sigmayneg2="~sigma[y]^-2",
+    sigmaaneg2="~sigma[~alpha]^-2")
+
+tibble(x=xvec) %>%
+    mutate(sigmayneg2=dgamma(x, .5, .5 * s20)) %>%
+    mutate(sigmaaneg2=dgamma(x, .5, .5 * t20)) %>%
+    mutate(mua=dnorm(xvec, mu0, sqrt(s20))) %>%
+    mutate(aj=dnorm(xvec, mu0, sqrt(t20))) %>%
+    gather("Parameter", "Density", -x) %>%
+    filter(Density > .001) %>%
+    mutate(Parameter=labs_[Parameter]) %>%
+    ggplot(aes(x=x, y=Density)) +
+    geom_line() +
+    facet_wrap(~Parameter, scales="free", labeller = label_parsed) +
+    theme_classic()
+```
+
+```{r include=F}
 # Check out what the names of priors can be
 # get_prior(math ~ 1 + (1|schoolid), data=DF)
 # check out doccumentation on possible priors
@@ -58,7 +84,9 @@ modelFit <- brm(
 ## Question 2
 _Assess the convergence of your algorithm and whether it has run for enough iterations. If not, run it for longer._
 
-```{r}
+We plot the iterations of the chains for the parameters $\mu_\alpha$, $\sigma^2_\alpha$, and $\sigma^2_y$. These parameters will often take longer to reach convergence than the school level effects and so convergence of these parameters often indicates that the model has run for a sufficient amount of iterations. We see that for the three parameters that there is a significant amount of overlap between the chains, as well as consistent parameter space exploration indicating that the model has run for a sufficient amount of time, Figure 2.  
+
+```{r fig.cap="Chains for Hyper-Parameters"}
 # check out the variables
 # get_variables(modelFit)
 
@@ -77,6 +105,8 @@ modelFit %>%
 ## Question 3
 _Summarize the posterior distribution you obtain in graphical and tabular form._
 
+Table 1 shows the estimates and Credible Intervals for the posterior distribution of our hyper parameters. Figure 3 shows the posterior Credible Intervals for the 60 school means arranged form highest to lowest mean effect.
+
 ```{r}
 modelFit %>%
     spread_draws(b_Intercept, sd_schoolid__Intercept, sigma) %>%
@@ -85,10 +115,10 @@ modelFit %>%
     median_qi(.width=.95) %>%
     select(Parameter:`.upper`) %>%
     rename(`2.5 CI`=`.lower`, `97.5 CI`=`.upper`) %>%
-    knitr::kable()
+    knitr::kable(caption="CI Estimates for Hyper-Parameters")
 ```
 
-```{r}
+```{r fig.cap="CI Estimates for School Means"}
 reDF <- modelFit %>%
   spread_draws(b_Intercept, r_schoolid[schoolid,]) %>%
   median_qi(school_mean = b_Intercept + r_schoolid, .width = c(.95))
@@ -110,6 +140,8 @@ reDF %>%
 ## Question 4  
 _For which school is the difference between the non-Bayesian estimate and the Bayesian estimate of the group mean the largest?  Why do you think this school has the largest difference?_
 
+When we run an MLE hierarchical model and compare the school mean estimates between that model and the Bayesian model we find that results are extremely similar. The priors that have been chosen allow the data to inform the estimate strongly and the pooling that occurs between the school means is similar to the pooling that happens in the MLE model. Table 2 shows the models with the "largest" difference in the estimate of the school means however the differences are on the order of the $10^{-3}$. We do see however that these schools are on the lowest quartile of total observations of students allowing the priors to have more of an effect on the outcome. 
+
 ```{r}
 mleFit <- lmer(math ~ 1 + (1|schoolid), data=DF)
 
@@ -118,7 +150,16 @@ coef(mleFit)$schoolid %>%
     rename(estMLE=`(Intercept)`) %>%
     left_join(reDF) %>%
     mutate(estDiff=abs(estMLE-school_mean)) %>%
-    arrange(-estDiff)
+    arrange(-estDiff) %>%
+    select(schoolid, estDiff) %>%
+    left_join(
+        DF %>%
+            group_by(schoolid) %>%
+            summarise(n=n()) %>%
+            arrange(n) %>%
+            mutate(schoolid=as.numeric(as.character(schoolid)))) %>%
+    head(n=5) %>%
+    rename(`Absolute Difference`=estDiff) %>%
+    knitr::kable(caption="Sample Size and School Mean Estimate Difference")
 
-DF %>% group_by(schoolid) %>% summarise(n=n()) %>% arrange(n)
 ```
